@@ -14,9 +14,10 @@ import { FeeEditor } from "@/components/harn-tee/fee-editor";
 import { PaymentEditor } from "@/components/harn-tee/payment-editor";
 import { LinkPanel } from "@/components/harn-tee/link-panel";
 import { CopyButton } from "@/components/harn-tee/copy-button";
+import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
 import { calculateBill, formatBaht } from "@/lib/harn-tee/money";
 import { validateBillDraft, validateRecipient } from "@/lib/harn-tee/validation";
-import type { BillDocument, BillDraft, RecipientData } from "@/lib/harn-tee/types";
+import type { BillDocument, BillDraft, FeeMode, RecipientData } from "@/lib/harn-tee/types";
 import { registerHarnTeeTools } from "@/lib/harn-tee/webmcp";
 
 function makeId(prefix: string) {
@@ -31,6 +32,7 @@ function defaultDraft(): BillDraft {
   const firstPerson = makeId("person");
   return {
     title: "",
+    feeMode: "bill",
     participants: [{ id: firstPerson, name: "", order: 0 }],
     items: [{ id: makeId("item"), name: "", priceSatang: 0, payerIds: [firstPerson], order: 0 }],
     vatPercent: 0,
@@ -42,6 +44,7 @@ function defaultDraft(): BillDraft {
 function documentToDraft(document: BillDocument): BillDraft {
   return {
     title: document.title,
+    feeMode: document.feeMode ?? "bill",
     participants: document.participants.map((person) => ({
       id: person.id,
       name: person.name,
@@ -79,6 +82,7 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [links, setLinks] = useState<{ shareUrl: string; editUrl: string } | null>(null);
+  const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
   const [paidState, setPaidState] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialDocument?.participants.map((person) => [person.id, person.paid]) ?? []),
   );
@@ -303,10 +307,12 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
 
             {step === 1 ? (
               <>
-                <ItemEditor items={draft.items} participants={draft.participants} onChange={updateItem} onAdd={addItem} onRemove={removeItem} />
+                <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} />
                 <FeeEditor
                   vatPercent={draft.vatPercent}
                   serviceChargePercent={draft.serviceChargePercent}
+                  feeMode={draft.feeMode ?? "bill"}
+                  onModeChange={(feeMode: FeeMode) => setDraft((current) => ({ ...current, feeMode }))}
                   onChange={(key, value) => setDraft((current) => ({ ...current, [key]: value }))}
                 />
                 <PaymentEditor
@@ -341,9 +347,12 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
                   </div>
                   <div className="space-y-2">
                     {calculation.participants.map((person) => (
-                      <div className="flex items-center justify-between rounded-xl border border-[#e3ebe1] bg-[#fbfdf9] px-4 py-3" key={person.participantId}>
-                        <span><span className="block font-semibold text-[#315f50]">{person.name}</span>{isEditMode ? <button type="button" onClick={() => void toggleAdminPaid(person.participantId)} className="mt-1 text-xs font-bold text-[#3d8060]">{paidState[person.participantId] ? "จ่ายแล้ว · เปลี่ยนเป็นยังไม่จ่าย" : "ยังไม่ได้จ่าย · กดเพื่อเปลี่ยน"}</button> : null}</span>
-                        <span className="font-display text-xl text-[#1c4036]">{formatBaht(person.amountDueSatang)} <span className="font-sans text-xs text-[#7c9085]">บาท</span></span>
+                      <div className="rounded-xl border border-[#d9e3ec] bg-white px-4 py-3" key={person.participantId}>
+                        <button type="button" onClick={() => setSelectedPerson(person.participantId)} className="flex w-full items-center justify-between gap-3 text-left">
+                          <span><span className="block font-semibold text-[#1f3b55]">{person.name}</span><span className="mt-1 block text-xs text-[#607387]">{person.lineItems.length} รายการ · ดูรายละเอียด</span></span>
+                          <span className="font-display text-xl text-[#15263d]">{formatBaht(person.amountDueSatang)} <span className="font-sans text-xs text-[#607387]">บาท</span></span>
+                        </button>
+                        {isEditMode ? <button type="button" onClick={() => void toggleAdminPaid(person.participantId)} className="mt-2 text-xs font-bold text-[#185c74]">{paidState[person.participantId] ? "จ่ายแล้ว · เปลี่ยนเป็นยังไม่จ่าย" : "ยังไม่ได้จ่าย · กดเพื่อเปลี่ยน"}</button> : null}
                       </div>
                     ))}
                   </div>
@@ -376,6 +385,12 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
           </div>
         </div>
       </div>
+      {selectedPerson ? (
+        (() => {
+          const person = calculation.participants.find((entry) => entry.participantId === selectedPerson);
+          return person ? <ParticipantDetail person={person} onClose={() => setSelectedPerson(null)} /> : null;
+        })()
+      ) : null}
     </main>
   );
 }

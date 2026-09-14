@@ -1,19 +1,11 @@
-import { Check, QrCode, WalletCards } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown, QrCode, WalletCards } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RecipientData } from "@/lib/harn-tee/types";
-
-const banks = [
-  ["SCB", "ธนาคารไทยพาณิชย์"],
-  ["KBANK", "ธนาคารกสิกรไทย"],
-  ["KTB", "ธนาคารกรุงไทย"],
-  ["BBL", "ธนาคารกรุงเทพ"],
-  ["BAY", "ธนาคารกรุงศรีอยุธยา"],
-  ["TTB", "ธนาคารทหารไทยธนชาต"],
-  ["GSB", "ธนาคารออมสิน"],
-  ["UOB", "ธนาคารยูโอบี"],
-];
+import { banks, getBank } from "@/lib/harn-tee/banks";
+import { BankMark } from "@/components/harn-tee/bank-mark";
 
 export function PaymentEditor({
   recipient,
@@ -26,6 +18,8 @@ export function PaymentEditor({
   onChange: (recipient: RecipientData) => void;
   onQrChange: (file: File | null) => void;
 }) {
+  const [bankOpen, setBankOpen] = useState(false);
+  const selectedBank = recipient.bank ? getBank(recipient.bank.bankId) : null;
   return (
     <Card className="border-[#dfe8df] bg-white/85 shadow-[0_22px_60px_rgb(32_67_56/7%)]">
       <CardHeader className="space-y-1">
@@ -48,25 +42,29 @@ export function PaymentEditor({
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
           <label className="block space-y-1.5">
             <span className="text-sm font-semibold text-[#4d665b]">ธนาคาร</span>
-            <select
-              value={recipient.bank?.bankId ?? ""}
-              onChange={(event) =>
-                onChange({
-                  ...recipient,
-                  bank: event.target.value
-                    ? { bankId: event.target.value, accountNumber: recipient.bank?.accountNumber ?? "" }
-                    : null,
-                })
-              }
-              className="h-11 w-full rounded-xl border border-[#dfe8df] bg-[#fbfdf9] px-3 text-sm text-[#315247] outline-none focus:border-[#78a48f] focus:ring-2 focus:ring-[#d9eee0]"
-            >
-              <option value="">ยังไม่เลือกธนาคาร</option>
-              {banks.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {id} · {name}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={bankOpen}
+                onClick={() => setBankOpen((open) => !open)}
+                className="flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-[#cbd8e5] bg-white px-3 text-left text-sm text-[#243b53] outline-none focus:border-[#185c74] focus:ring-2 focus:ring-[#d7e8ef]"
+              >
+                {selectedBank ? <span className="flex min-w-0 items-center gap-2"><BankMark bank={selectedBank} size="sm" /><span className="truncate">{selectedBank.id} · {selectedBank.name}</span></span> : <span className="text-[#607387]">ยังไม่เลือกธนาคาร</span>}
+                <ChevronDown size={16} className="shrink-0 text-[#607387]" />
+              </button>
+              {bankOpen ? (
+                <div role="listbox" aria-label="เลือกธนาคาร" className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-64 overflow-y-auto rounded-xl border border-[#cbd8e5] bg-white p-1 shadow-xl">
+                  <button type="button" role="option" aria-selected={!selectedBank} onClick={() => { onChange({ ...recipient, bank: null }); setBankOpen(false); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#607387] hover:bg-[#eef4f8]">ยังไม่เลือกธนาคาร</button>
+                  {banks.map((bank) => (
+                    <button type="button" role="option" aria-selected={selectedBank?.id === bank.id} key={bank.id} onClick={() => { onChange({ ...recipient, bank: { bankId: bank.id, accountNumber: recipient.bank?.accountNumber ?? "" } }); setBankOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#243b53] hover:bg-[#eef4f8]">
+                      <BankMark bank={bank} size="sm" />
+                      <span className="truncate">{bank.id} · {bank.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </label>
           <label className="block space-y-1.5">
             <span className="text-sm font-semibold text-[#4d665b]">เลขบัญชี</span>

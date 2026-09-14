@@ -60,6 +60,7 @@ export async function PATCH(
     if (!current) return json({ error: "ลิงก์แก้ไขไม่ถูกต้อง" }, { status: 404 });
     const draft: BillDraft = {
       title: patch.title ?? current.document.title,
+      feeMode: patch.feeMode ?? current.document.feeMode ?? "bill",
       participants: (patch.participants ?? current.document.participants).map(
         ({ id, name, order }) => ({ id, name, order }),
       ),

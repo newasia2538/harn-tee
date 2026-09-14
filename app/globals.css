@@ -19,38 +19,38 @@
 }
 
 :root {
-  --background: #f5f8f1;
-  --foreground: #1c4036;
+  --background: #f4f8fb;
+  --foreground: #15263d;
   --card: #ffffff;
-  --card-foreground: #171717;
+  --card-foreground: #15263d;
   --popover: #ffffff;
   --popover-foreground: #171717;
-  --primary: #2f7256;
+  --primary: #185c74;
   --primary-foreground: #ffffff;
-  --secondary: #eaf3e8;
-  --secondary-foreground: #315f50;
-  --muted: #edf4ec;
-  --muted-foreground: #6d8176;
-  --accent: #fff0e8;
-  --accent-foreground: #a7553d;
-  --destructive: #c84f3b;
-  --border: #dfe8df;
-  --input: #dfe8df;
-  --ring: #78a48f;
+  --secondary: #e8f2f6;
+  --secondary-foreground: #123f53;
+  --muted: #edf3f7;
+  --muted-foreground: #607387;
+  --accent: #fff1e4;
+  --accent-foreground: #a34c20;
+  --destructive: #bd3f32;
+  --border: #d9e3ec;
+  --input: #cbd8e5;
+  --ring: #6ca0b6;
   --chart-1: #f54900;
   --chart-2: #009689;
   --chart-3: #104e64;
   --chart-4: #ffb900;
   --chart-5: #fe9a00;
   --radius: 0.875rem;
-  --sidebar: #fafafa;
-  --sidebar-foreground: #171717;
-  --sidebar-primary: #171717;
-  --sidebar-primary-foreground: #fafafa;
-  --sidebar-accent: #f5f5f5;
-  --sidebar-accent-foreground: #171717;
-  --sidebar-border: #e5e5e5;
-  --sidebar-ring: #a1a1a1;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #15263d;
+  --sidebar-primary: #185c74;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #edf3f7;
+  --sidebar-accent-foreground: #15263d;
+  --sidebar-border: #d9e3ec;
+  --sidebar-ring: #6ca0b6;
 }
 
 @theme inline {
@@ -94,47 +94,11 @@
     "Liberation Mono", "Courier New", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --card: #171717;
-    --card-foreground: #ededed;
-    --popover: #171717;
-    --popover-foreground: #ededed;
-    --primary: #ededed;
-    --primary-foreground: #171717;
-    --secondary: #262626;
-    --secondary-foreground: #ededed;
-    --muted: #262626;
-    --muted-foreground: #a1a1a1;
-    --accent: #262626;
-    --accent-foreground: #ededed;
-    --destructive: #ff6467;
-    --border: #ffffff1a;
-    --input: #ffffff26;
-    --ring: #737373;
-    --chart-1: #8e51ff;
-    --chart-2: #00bc7d;
-    --chart-3: #fe9a00;
-    --chart-4: #ad46ff;
-    --chart-5: #ff2056;
-    --sidebar: #171717;
-    --sidebar-foreground: #ededed;
-    --sidebar-primary: #8e51ff;
-    --sidebar-primary-foreground: #ededed;
-    --sidebar-accent: #262626;
-    --sidebar-accent-foreground: #ededed;
-    --sidebar-border: #ffffff1a;
-    --sidebar-ring: #737373;
-  }
-}
-
 body {
   min-width: 320px;
   background:
-    radial-gradient(circle at 88% 4%, rgb(245 206 177 / 28%), transparent 26rem),
-    radial-gradient(circle at 4% 44%, rgb(201 225 204 / 34%), transparent 28rem),
+    radial-gradient(circle at 88% 4%, rgb(242 140 69 / 16%), transparent 26rem),
+    radial-gradient(circle at 4% 44%, rgb(24 92 116 / 14%), transparent 28rem),
     var(--background);
   color: var(--foreground);
   font-family: "Noto Sans Thai", "Tahoma", Arial, Helvetica, sans-serif;
@@ -143,3 +107,15 @@ body {
 .font-display {
   font-family: Georgia, "Noto Serif Thai", serif;
 }
+
+/* Bridge legacy component utility colors into the approved Navy & Tangerine theme. */
+[class*="text-[#1c4036]"], [class*="text-[#21443a]"], [class*="text-[#15263d]"] { color: #15263d !important; }
+[class*="text-[#315f50]"], [class*="text-[#2f604f]"], [class*="text-[#35644f]"], [class*="text-[#3f6e5c]"], [class*="text-[#4d665b]"], [class*="text-[#48675a]"], [class*="text-[#537166]"], [class*="text-[#547167]"] { color: #24445c !important; }
+[class*="text-[#6d8176]"], [class*="text-[#668074]"], [class*="text-[#7a9184]"], [class*="text-[#7c9085]"], [class*="text-[#809087]"], [class*="text-[#8b9b91]"], [class*="text-[#8a9a90]"], [class*="text-[#7f9187]"], [class*="text-[#72847a]"], [class*="text-[#688177]"], [class*="text-[#789085]"] { color: #607387 !important; }
+[class*="bg-[#173f35]"], [class*="bg-[#173f35]"] { background-color: #15263d !important; }
+[class*="bg-[#2f7256]"] { background-color: #185c74 !important; }
+[class*="bg-[#ef6c4d]"], [class*="bg-[#e87553]"] { background-color: #f28c45 !important; }
+[class*="bg-[#eaf3e8]"], [class*="bg-[#eaf6ed]"], [class*="bg-[#fbfdf9]"] { background-color: #f7fafc !important; }
+[class*="border-[#dfe8df]"], [class*="border-[#e2ebe1]"], [class*="border-[#e3ebe1]"], [class*="border-[#e1e9e0]"], [class*="border-[#e7eee6]"] { border-color: #d9e3ec !important; }
+[class*="hover:bg-[#265d48]"]:hover { background-color: #12485b !important; }
+[class*="hover:bg-[#d95c40]"]:hover { background-color: #d97732 !important; }

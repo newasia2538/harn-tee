@@ -5,6 +5,7 @@ import type {
 } from "./types";
 
 function roundUpSatang(value: number) {
+  if (value <= 0) return 0;
   return Math.ceil(value - Number.EPSILON);
 }
 
@@ -17,31 +18,78 @@ function feeFromPercent(satang: number, percent: number) {
   return roundCurrency((satang * basisPoints) / 10_000);
 }
 
-function proportionalFee(
-  feeSatang: number,
-  rawParticipantSubtotal: number,
+function allocateFeeAcrossItems(
+  totalFeeSatang: number,
+  items: CalculationInput["items"],
   subtotalSatang: number,
 ) {
-  if (subtotalSatang === 0) return 0;
-  return roundUpSatang((feeSatang * rawParticipantSubtotal) / subtotalSatang);
+  const allocation = new Map<string, number>();
+  if (subtotalSatang === 0) {
+    for (const item of items) allocation.set(item.id, 0);
+    return allocation;
+  }
+  let allocated = 0;
+  const orderedItems = [...items].sort((a, b) => a.order - b.order);
+
+  orderedItems.forEach((item, index) => {
+    const amount =
+      index === orderedItems.length - 1
+        ? totalFeeSatang - allocated
+        : Math.floor((totalFeeSatang * item.priceSatang) / subtotalSatang);
+    allocation.set(item.id, amount);
+    allocated += amount;
+  });
+
+  return allocation;
 }
 
 export function calculateBill(input: CalculationInput): CalculationResult {
+  const feeMode = input.feeMode ?? "bill";
   const subtotalSatang = input.items.reduce(
     (sum, item) => sum + item.priceSatang,
     0,
   );
-  const serviceChargeSatang = feeFromPercent(
-    subtotalSatang,
-    input.serviceChargePercent,
-  );
-  const vatSatang = feeFromPercent(subtotalSatang, input.vatPercent);
+  const serviceChargeSatang =
+    feeMode === "item"
+      ? input.items.reduce(
+          (sum, item) =>
+            sum + feeFromPercent(item.priceSatang, item.serviceChargePercent ?? 0),
+          0,
+        )
+      : feeFromPercent(subtotalSatang, input.serviceChargePercent);
+  const vatSatang =
+    feeMode === "item"
+      ? input.items.reduce(
+          (sum, item) => sum + feeFromPercent(item.priceSatang, item.vatPercent ?? 0),
+          0,
+        )
+      : feeFromPercent(subtotalSatang, input.vatPercent);
+  const itemServiceCharges =
+    feeMode === "item"
+      ? new Map(
+          input.items.map((item) => [
+            item.id,
+            feeFromPercent(item.priceSatang, item.serviceChargePercent ?? 0),
+          ]),
+        )
+      : allocateFeeAcrossItems(serviceChargeSatang, input.items, subtotalSatang);
+  const itemVatCharges =
+    feeMode === "item"
+      ? new Map(
+          input.items.map((item) => [
+            item.id,
+            feeFromPercent(item.priceSatang, item.vatPercent ?? 0),
+          ]),
+        )
+      : allocateFeeAcrossItems(vatSatang, input.items, subtotalSatang);
 
   const rawSubtotals = new Map<string, number>();
+  const rawTotals = new Map<string, number>();
   const lineItems = new Map<string, ParticipantCalculation["lineItems"]>();
 
   for (const participant of input.participants) {
     rawSubtotals.set(participant.id, 0);
+    rawTotals.set(participant.id, 0);
     lineItems.set(participant.id, []);
   }
 
@@ -55,15 +103,30 @@ export function calculateBill(input: CalculationInput): CalculationResult {
     if (payers.length === 0) continue;
 
     const rawShare = item.priceSatang / payers.length;
+    const itemServiceCharge = itemServiceCharges.get(item.id) ?? 0;
+    const itemVat = itemVatCharges.get(item.id) ?? 0;
     for (const payer of payers) {
+      const amountSatang = roundUpSatang(rawShare);
+      const serviceChargeShare = roundUpSatang(itemServiceCharge / payers.length);
+      const vatShare = roundUpSatang(itemVat / payers.length);
       rawSubtotals.set(
         payer.id,
         (rawSubtotals.get(payer.id) ?? 0) + rawShare,
       );
+      rawTotals.set(
+        payer.id,
+        (rawTotals.get(payer.id) ?? 0) +
+          rawShare +
+          itemServiceCharge / payers.length +
+          itemVat / payers.length,
+      );
       lineItems.get(payer.id)?.push({
         itemId: item.id,
         name: item.name,
-        amountSatang: roundUpSatang(rawShare),
+        amountSatang,
+        serviceChargeSatang: serviceChargeShare,
+        vatSatang: vatShare,
+        totalSatang: amountSatang + serviceChargeShare + vatShare,
       });
     }
   }
@@ -77,15 +140,13 @@ export function calculateBill(input: CalculationInput): CalculationResult {
         (sum, item) => sum + item.amountSatang,
         0,
       );
-      const participantServiceCharge = proportionalFee(
-        serviceChargeSatang,
-        rawSubtotal,
-        subtotalSatang,
+      const participantServiceCharge = (lineItems.get(participant.id) ?? []).reduce(
+        (sum, item) => sum + item.serviceChargeSatang,
+        0,
       );
-      const participantVat = proportionalFee(
-        vatSatang,
-        rawSubtotal,
-        subtotalSatang,
+      const participantVat = (lineItems.get(participant.id) ?? []).reduce(
+        (sum, item) => sum + item.vatSatang,
+        0,
       );
       const amountDueSatang =
         itemSubtotalSatang + participantServiceCharge + participantVat;
@@ -100,7 +161,7 @@ export function calculateBill(input: CalculationInput): CalculationResult {
         lineItems: lineItems.get(participant.id) ?? [],
         roundingAdjustmentSatang:
           amountDueSatang -
-          Math.round(rawSubtotal + participantServiceCharge + participantVat),
+          Math.round(rawTotals.get(participant.id) ?? rawSubtotal),
       };
     });
 

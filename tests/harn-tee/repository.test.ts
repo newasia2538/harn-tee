@@ -28,6 +28,7 @@ describe("harn-tee bill documents", () => {
     const document = buildBillDocument(draft);
 
     expect(document.status).toBe("draft");
+    expect(document.feeMode).toBe("bill");
     expect(document.participants.map((person) => person.paid)).toEqual([
       false,
       false,
@@ -39,6 +40,18 @@ describe("harn-tee bill documents", () => {
       qr: null,
       visible: true,
     });
+  });
+
+  it("preserves item-level fee settings in a document", () => {
+    const document = buildBillDocument({
+      ...draft,
+      feeMode: "item",
+      items: [{ ...draft.items[0], vatPercent: 7, serviceChargePercent: 10 }],
+    });
+
+    expect(document.feeMode).toBe("item");
+    expect(document.items[0].vatPercent).toBe(7);
+    expect(document.items[0].serviceChargePercent).toBe(10);
   });
 
   it("clears payment statuses when a financial patch is applied", () => {

@@ -47,6 +47,20 @@ export function validateBillDraft(input: BillDraft): ValidationResult {
     errors.push("Service charge ต้องอยู่ระหว่าง 0 ถึง 100%");
   }
 
+  if ((input.feeMode ?? "bill") === "item") {
+    for (const item of input.items) {
+      if ((item.vatPercent ?? 0) < 0 || (item.vatPercent ?? 0) > 100) {
+        errors.push("VAT ของรายการต้องอยู่ระหว่าง 0 ถึง 100%");
+      }
+      if (
+        (item.serviceChargePercent ?? 0) < 0 ||
+        (item.serviceChargePercent ?? 0) > 100
+      ) {
+        errors.push("Service charge ของรายการต้องอยู่ระหว่าง 0 ถึง 100%");
+      }
+    }
+  }
+
   return errors.length > 0
     ? { valid: false, errors: [...new Set(errors)] }
     : { valid: true, errors: [] };

@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CopyButton } from "@/components/harn-tee/copy-button";
+import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
+import { BankMark } from "@/components/harn-tee/bank-mark";
+import { getBank } from "@/lib/harn-tee/banks";
 import { calculateBill, formatBaht } from "@/lib/harn-tee/money";
 import type { BillDocument, ParticipantDraft } from "@/lib/harn-tee/types";
 
@@ -19,6 +22,7 @@ function getCalculation(document: BillDocument) {
   }));
   return calculateBill({
     title: document.title,
+    feeMode: document.feeMode ?? "bill",
     participants,
     items: document.items,
     vatPercent: document.vatPercent,
@@ -41,6 +45,7 @@ function PaymentPanel({ document, token }: { document: BillDocument; token: stri
   const recipient = document.recipient;
   if (!recipient.visible) return null;
   const bank = recipient.bank;
+  const bankInfo = bank ? getBank(bank.bankId) : null;
   const promptPay = recipient.promptPay;
   if (!recipient.name && !bank && !promptPay && !recipient.qr) return null;
   return (
@@ -53,7 +58,7 @@ function PaymentPanel({ document, token }: { document: BillDocument; token: stri
       <CardContent className="space-y-3">
         {bank ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e3ebe1] bg-[#fbfdf9] px-4 py-3">
-            <div><p className="text-xs text-[#809087]">บัญชีธนาคาร {bank.bankId}</p><p className="mt-1 font-mono text-base font-bold tracking-[0.08em] text-[#315f50]">{bank.accountNumber}</p></div>
+            <div className="flex min-w-0 items-center gap-3">{bankInfo ? <BankMark bank={bankInfo} size="sm" /> : null}<div className="min-w-0"><p className="text-xs text-[#607387]">บัญชีธนาคาร {bankInfo?.name ?? bank.bankId}</p><p className="mt-1 font-mono text-base font-bold tracking-[0.08em] text-[#243b53]">{bank.accountNumber}</p></div></div>
             <CopyButton value={bank.accountNumber} label="คัดลอกเลขบัญชี" />
           </div>
         ) : null}
@@ -71,35 +76,6 @@ function PaymentPanel({ document, token }: { document: BillDocument; token: stri
         ) : null}
       </CardContent>
     </Card>
-  );
-}
-
-function PersonDetail({ personId, document, onClose }: { personId: string; document: BillDocument; onClose: () => void }) {
-  const calculation = getCalculation(document);
-  const person = calculation.participants.find((entry) => entry.participantId === personId);
-  if (!person) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#163e34]/35 p-0 sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-[#f8fbf6] p-5 shadow-2xl sm:rounded-[28px] sm:p-7" role="dialog" aria-modal="true" aria-labelledby="person-detail-title">
-        <div className="flex items-start justify-between gap-4">
-          <div><p className="text-sm font-semibold text-[#809087]">รายละเอียดของ</p><h2 id="person-detail-title" className="font-display text-3xl text-[#1c4036]">{person.name}</h2></div>
-          <Button variant="ghost" onClick={onClose} className="rounded-xl text-[#668074]">ปิด</Button>
-        </div>
-        <div className="mt-5 space-y-2">
-          {person.lineItems.map((item) => (
-            <div className="flex items-center justify-between rounded-xl border border-[#e2ebe1] bg-white px-4 py-3" key={item.itemId}>
-              <span className="text-sm font-semibold text-[#48675a]">{item.name}</span><strong className="text-[#1c4036]">{formatBaht(item.amountSatang)} บาท</strong>
-            </div>
-          ))}
-        </div>
-        <div className="mt-5 space-y-2 border-t border-[#dfe8df] pt-4 text-sm">
-          <div className="flex justify-between text-[#6d8176]"><span>Service charge</span><span>{formatBaht(person.serviceChargeSatang)} บาท</span></div>
-          <div className="flex justify-between text-[#6d8176]"><span>VAT</span><span>{formatBaht(person.vatSatang)} บาท</span></div>
-          <div className="flex justify-between pt-2 text-base font-bold text-[#1c4036]"><span>ยอดที่ต้องจ่าย</span><span>{formatBaht(person.amountDueSatang)} บาท</span></div>
-        </div>
-        <Button onClick={onClose} className="mt-6 h-11 w-full rounded-xl bg-[#2f7256] hover:bg-[#265d48]">กลับไปดูรายชื่อ</Button>
-      </div>
-    </div>
   );
 }
 
@@ -183,7 +159,10 @@ export function SummaryClient({ token }: { token: string }) {
           </div>
         </div>
       </div>
-      {selectedPerson ? <PersonDetail personId={selectedPerson} document={document} onClose={() => setSelectedPerson(null)} /> : null}
+      {selectedPerson ? (() => {
+        const person = calculation?.participants.find((entry) => entry.participantId === selectedPerson);
+        return person ? <ParticipantDetail person={person} onClose={() => setSelectedPerson(null)} /> : null;
+      })() : null}
     </main>
   );
 }

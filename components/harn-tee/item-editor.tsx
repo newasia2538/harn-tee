@@ -4,18 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ItemDraft, ParticipantDraft } from "@/lib/harn-tee/types";
+import type { FeeMode, ItemDraft, ParticipantDraft } from "@/lib/harn-tee/types";
 import { formatBaht } from "@/lib/harn-tee/money";
 
 export function ItemEditor({
   items,
   participants,
+  feeMode,
   onChange,
   onAdd,
   onRemove,
 }: {
   items: ItemDraft[];
   participants: ParticipantDraft[];
+  feeMode: FeeMode;
   onChange: (id: string, patch: Partial<ItemDraft>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
@@ -133,6 +135,42 @@ export function ItemEditor({
                   );
                 })}
               </div>
+              {feeMode === "item" ? (
+                <div className="mt-3 grid gap-3 rounded-xl border border-[#d8e2ed] bg-[#f5f8fb] p-3 sm:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="text-xs font-bold text-[#334b62]">VAT รายการนี้</span>
+                    <div className="relative">
+                      <Input
+                        aria-label={"VAT ของรายการที่ " + (index + 1)}
+                        inputMode="decimal"
+                        value={item.vatPercent ?? 0}
+                        onChange={(event) => onChange(item.id, { vatPercent: Number(event.target.value) || 0 })}
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        className="h-10 rounded-xl border-[#cbd8e5] bg-white pr-9 text-right"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-2.5 text-xs text-[#5f7182]">%</span>
+                    </div>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-bold text-[#334b62]">Service charge รายการนี้</span>
+                    <div className="relative">
+                      <Input
+                        aria-label={"Service charge ของรายการที่ " + (index + 1)}
+                        inputMode="decimal"
+                        value={item.serviceChargePercent ?? 0}
+                        onChange={(event) => onChange(item.id, { serviceChargePercent: Number(event.target.value) || 0 })}
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        className="h-10 rounded-xl border-[#cbd8e5] bg-white pr-9 text-right"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-2.5 text-xs text-[#5f7182]">%</span>
+                    </div>
+                  </label>
+                </div>
+              ) : null}
             </div>
           </div>
         ))}

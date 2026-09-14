@@ -4,16 +4,21 @@ export type ParticipantDraft = {
   order: number;
 };
 
+export type FeeMode = "bill" | "item";
+
 export type ItemDraft = {
   id: string;
   name: string;
   priceSatang: number;
   payerIds: string[];
+  vatPercent?: number;
+  serviceChargePercent?: number;
   order: number;
 };
 
 export type BillDraft = {
   title?: string;
+  feeMode?: FeeMode;
   participants: ParticipantDraft[];
   items: ItemDraft[];
   vatPercent: number;
@@ -54,6 +59,7 @@ export type BillDocument = {
   version: 1;
   status: "draft" | "published" | "deleted";
   title: string;
+  feeMode?: FeeMode;
   participants: BillParticipant[];
   items: ItemDraft[];
   vatPercent: number;
@@ -67,6 +73,7 @@ export type BillPatch = Partial<
   Pick<
     BillDocument,
     | "title"
+    | "feeMode"
     | "participants"
     | "items"
     | "vatPercent"
@@ -90,6 +97,9 @@ export type LineItemShare = {
   itemId: string;
   name: string;
   amountSatang: number;
+  serviceChargeSatang: number;
+  vatSatang: number;
+  totalSatang: number;
 };
 
 export type ParticipantCalculation = {

@@ -65,6 +65,22 @@ describe("harn-tee bill validation", () => {
     );
   });
 
+  it("validates fee percentages on each item in item mode", () => {
+    const result = validateBillDraft({
+      ...validDraft,
+      feeMode: "item",
+      items: [{ ...validDraft.items[0], vatPercent: 101, serviceChargePercent: -1 }],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        "VAT ของรายการต้องอยู่ระหว่าง 0 ถึง 100%",
+        "Service charge ของรายการต้องอยู่ระหว่าง 0 ถึง 100%",
+      ]),
+    );
+  });
+
   it("validates the selected recipient payment identifiers", () => {
     const result = validateRecipient({
       name: "มิน",
