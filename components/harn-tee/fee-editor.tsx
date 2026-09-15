@@ -23,7 +23,9 @@ export function FeeEditor({
           <Percent size={21} />
         </div>
         <CardTitle className="font-display text-2xl text-[#1c4036]">ค่าบริการเพิ่มเติม</CardTitle>
-        <p className="text-sm text-[#6d8176]">คิดจากยอดสินค้าเท่านั้น ไม่คิดซ้อนกัน</p>
+        <p className="text-sm text-[#6d8176]">
+          Service charge คิดจากยอดสินค้า แล้ว VAT คิดต่อจากยอดสินค้ารวม Service charge
+        </p>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">

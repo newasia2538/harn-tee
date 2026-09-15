@@ -20,11 +20,11 @@ Let `subtotal` be the sum of item prices.
 
 ```text
 serviceCharge = subtotal × serviceChargePercent / 100
-vat = subtotal × vatPercent / 100
+vat = (subtotal + serviceCharge) × vatPercent / 100
 grossTotal = subtotal + serviceCharge + vat
 ```
 
-- VAT and service charge are both calculated from the item subtotal only.
+- Service charge is calculated from the item subtotal first; VAT is then calculated from the subtotal plus service charge.
 - Each item starts with all participants selected as payers.
 - An item is split equally across its selected payers.
 - Currency inputs are positive Thai baht values with two displayed decimals.
@@ -73,4 +73,3 @@ grossTotal = subtotal + serviceCharge + vat
 ## Explicit MVP non-goals
 
 - Authentication, OCR, bank ownership verification, dynamic Thai QR generation, custom weighted splits, quantities, recurring expenses, English localization, and transfer verification.
-

@@ -21,10 +21,14 @@ function feeFromPercent(satang: number, percent: number) {
 function allocateFeeAcrossItems(
   totalFeeSatang: number,
   items: CalculationInput["items"],
-  subtotalSatang: number,
+  weights: Map<string, number>,
 ) {
   const allocation = new Map<string, number>();
-  if (subtotalSatang === 0) {
+  const totalWeightSatang = items.reduce(
+    (sum, item) => sum + (weights.get(item.id) ?? 0),
+    0,
+  );
+  if (totalWeightSatang === 0) {
     for (const item of items) allocation.set(item.id, 0);
     return allocation;
   }
@@ -35,7 +39,9 @@ function allocateFeeAcrossItems(
     const amount =
       index === orderedItems.length - 1
         ? totalFeeSatang - allocated
-        : Math.floor((totalFeeSatang * item.priceSatang) / subtotalSatang);
+        : Math.floor(
+            (totalFeeSatang * (weights.get(item.id) ?? 0)) / totalWeightSatang,
+          );
     allocation.set(item.id, amount);
     allocated += amount;
   });
@@ -55,15 +61,8 @@ export function calculateBill(input: CalculationInput): CalculationResult {
           (sum, item) =>
             sum + feeFromPercent(item.priceSatang, item.serviceChargePercent ?? 0),
           0,
-        )
+      )
       : feeFromPercent(subtotalSatang, input.serviceChargePercent);
-  const vatSatang =
-    feeMode === "item"
-      ? input.items.reduce(
-          (sum, item) => sum + feeFromPercent(item.priceSatang, item.vatPercent ?? 0),
-          0,
-        )
-      : feeFromPercent(subtotalSatang, input.vatPercent);
   const itemServiceCharges =
     feeMode === "item"
       ? new Map(
@@ -72,16 +71,44 @@ export function calculateBill(input: CalculationInput): CalculationResult {
             feeFromPercent(item.priceSatang, item.serviceChargePercent ?? 0),
           ]),
         )
-      : allocateFeeAcrossItems(serviceChargeSatang, input.items, subtotalSatang);
+      : allocateFeeAcrossItems(
+          serviceChargeSatang,
+          input.items,
+          new Map(input.items.map((item) => [item.id, item.priceSatang])),
+        );
+  const vatSatang =
+    feeMode === "item"
+      ? input.items.reduce(
+          (sum, item) =>
+            sum +
+            feeFromPercent(
+              item.priceSatang + (itemServiceCharges.get(item.id) ?? 0),
+              item.vatPercent ?? 0,
+            ),
+          0,
+        )
+      : feeFromPercent(subtotalSatang + serviceChargeSatang, input.vatPercent);
   const itemVatCharges =
     feeMode === "item"
       ? new Map(
           input.items.map((item) => [
             item.id,
-            feeFromPercent(item.priceSatang, item.vatPercent ?? 0),
+            feeFromPercent(
+              item.priceSatang + (itemServiceCharges.get(item.id) ?? 0),
+              item.vatPercent ?? 0,
+            ),
           ]),
         )
-      : allocateFeeAcrossItems(vatSatang, input.items, subtotalSatang);
+      : allocateFeeAcrossItems(
+          vatSatang,
+          input.items,
+          new Map(
+            input.items.map((item) => [
+              item.id,
+              item.priceSatang + (itemServiceCharges.get(item.id) ?? 0),
+            ]),
+          ),
+        );
 
   const rawSubtotals = new Map<string, number>();
   const rawTotals = new Map<string, number>();

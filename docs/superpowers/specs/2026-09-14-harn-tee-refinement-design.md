@@ -9,9 +9,9 @@ Use the Navy & Tangerine palette: deep navy ink and teal controls on a soft blue
 Every new bill stores `feeMode` as either `bill` or `item`. Existing bills without this field are treated as `bill` mode.
 
 - `bill`: the existing VAT and service-charge percentages apply to the bill subtotal.
-- `item`: each item stores its own VAT and service-charge percentages. Each fee is calculated from that item price and split equally among that item's selected payers.
+- `item`: each item stores its own VAT and service-charge percentages. Service charge is calculated from that item price first, then VAT is calculated from that item price plus its service charge. Each fee is split equally among that item's selected payers.
 
-Both modes calculate fees from item prices only. The calculation result keeps the fee amount on each participant and also exposes fee components on every participant line item so Preview and Summary can audit the result.
+Both modes calculate service charge from item prices first, then calculate VAT from the item price plus the allocated service charge. The calculation result keeps the fee amount on each participant and also exposes fee components on every participant line item so Preview and Summary can audit the result.
 
 ## Preview and Summary
 
