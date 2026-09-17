@@ -34,9 +34,7 @@ function getCalculation(document: BillDocument) {
 function Brand() {
   return (
     <Link href="/" className="inline-flex items-center gap-2.5 text-[#1c4036]">
-      <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#ef6c4d] text-white shadow-[0_8px_18px_rgb(239_108_77/22%)]">
-        <span className="font-display text-2xl font-bold leading-none">÷</span>
-      </span>
+      <Image src="/harn-tee-icon.png" alt="หารที" width={48} height={48} className="h-11 w-11 rounded-2xl object-cover shadow-[0_8px_18px_rgb(23_63_53/16%)]" />
       <span className="font-display text-2xl font-bold tracking-[-0.04em]">harn-tee</span>
     </Link>
   );

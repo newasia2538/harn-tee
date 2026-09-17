@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft, ArrowRight, Check, Clipboard, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,9 +69,7 @@ function documentToDraft(document: BillDocument): BillDraft {
 function BrandMark() {
   return (
     <Link href="/" className="inline-flex items-center gap-2.5 text-[#1c4036]">
-      <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#ef6c4d] text-white shadow-[0_8px_18px_rgb(239_108_77/22%)]">
-        <span className="font-display text-2xl font-bold leading-none">÷</span>
-      </span>
+      <Image src="/harn-tee-icon.png" alt="หารที" width={48} height={48} className="h-11 w-11 rounded-2xl object-cover shadow-[0_8px_18px_rgb(23_63_53/16%)]" />
       <span>
         <span className="block font-display text-2xl font-bold leading-none tracking-[-0.04em]">harn-tee</span>
         <span className="mt-0.5 block text-[11px] font-semibold tracking-[0.08em] text-[#7a9184]">หารที</span>
@@ -267,15 +266,32 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
           </div>
         </header>
 
-        <div className="mx-auto max-w-3xl">
-          <div className="mb-8">
-            <h1 className="font-display text-[clamp(2.3rem,7vw,4.5rem)] leading-[0.98] tracking-[-0.055em] text-[#1c4036]">
-              หารที <span className="text-[#e87553]">ไม่ต้องเดา</span>
-            </h1>
-            <p className="mt-4 max-w-xl text-base leading-7 text-[#61766b] sm:text-lg">
-              ใส่ของที่กิน ใครจ่ายอะไร แล้วแชร์ยอดที่ชัดเจนให้เพื่อนในไม่กี่ขั้น
-            </p>
-          </div>
+        <div className="mx-auto max-w-4xl">
+          <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#d9e7f0] bg-[#f5fbff] shadow-[0_24px_70px_rgb(36_87_117/10%)]">
+            <div className="grid md:grid-cols-[1.08fr_0.92fr]">
+              <div className="relative z-10 flex flex-col justify-center p-6 sm:p-8 lg:p-10">
+                <div className="mb-4 inline-flex w-fit items-center rounded-full border border-[#cfe5f3] bg-white/80 px-3 py-1.5 text-xs font-bold text-[#397181]">
+                  แชร์บิลให้เพื่อนแบบสบายใจ
+                </div>
+                <h1 className="font-display text-[clamp(2rem,6vw,3.8rem)] leading-[1.04] tracking-[-0.05em] text-[#173f35]">
+                  หารที แชร์บิลที่ร่วมจ่าย <span className="text-[#e87553]">ให้หารง่ายกว่าที่เคย</span>
+                </h1>
+                <p className="mt-4 max-w-xl text-base leading-7 text-[#526f80] sm:text-lg">
+                  ระบุผู้ร่วมจ่ายและรายการที่จ่าย ระบบคำนวณยอดให้แต่ละคน พร้อมแชร์สรุปได้ในไม่กี่ขั้น
+                </p>
+              </div>
+              <div className="relative min-h-[245px] overflow-hidden sm:min-h-[320px] md:min-h-[390px]">
+                <Image
+                  src="/harn-tee-banner.png"
+                  alt="เพื่อนๆ กำลังช่วยกันหารบิลค่าอาหาร"
+                  fill
+                  priority
+                  sizes="(max-width: 767px) 100vw, 55vw"
+                  className="object-cover object-[62%_center]"
+                />
+              </div>
+            </div>
+          </section>
           <Stepper current={step} />
           {draftEditToken && !isEditMode ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#eadfd2] bg-[#fffaf4] px-4 py-3 text-sm text-[#8d6d59]">
