@@ -6,6 +6,8 @@ export type ParticipantDraft = {
 
 export type FeeMode = "bill" | "item";
 
+export type CalculationMode = "vat-after-service" | "separate";
+
 export type ItemDraft = {
   id: string;
   name: string;
@@ -19,6 +21,7 @@ export type ItemDraft = {
 export type BillDraft = {
   title?: string;
   feeMode?: FeeMode;
+  calculationMode?: CalculationMode;
   participants: ParticipantDraft[];
   items: ItemDraft[];
   vatPercent: number;
@@ -60,6 +63,7 @@ export type BillDocument = {
   status: "draft" | "published" | "deleted";
   title: string;
   feeMode?: FeeMode;
+  calculationMode?: CalculationMode;
   participants: BillParticipant[];
   items: ItemDraft[];
   vatPercent: number;
@@ -74,6 +78,7 @@ export type BillPatch = Partial<
     BillDocument,
     | "title"
     | "feeMode"
+    | "calculationMode"
     | "participants"
     | "items"
     | "vatPercent"

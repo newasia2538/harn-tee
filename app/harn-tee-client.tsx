@@ -17,7 +17,13 @@ import { CopyButton } from "@/components/harn-tee/copy-button";
 import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
 import { calculateBill, formatBaht } from "@/lib/harn-tee/money";
 import { validateBillDraft, validateRecipient } from "@/lib/harn-tee/validation";
-import type { BillDocument, BillDraft, FeeMode, RecipientData } from "@/lib/harn-tee/types";
+import type {
+  BillDocument,
+  BillDraft,
+  CalculationMode,
+  FeeMode,
+  RecipientData,
+} from "@/lib/harn-tee/types";
 import { registerHarnTeeTools } from "@/lib/harn-tee/webmcp";
 
 function makeId(prefix: string) {
@@ -33,6 +39,7 @@ function defaultDraft(): BillDraft {
   return {
     title: "",
     feeMode: "bill",
+    calculationMode: "vat-after-service",
     participants: [{ id: firstPerson, name: "", order: 0 }],
     items: [{ id: makeId("item"), name: "", priceSatang: 0, payerIds: [firstPerson], order: 0 }],
     vatPercent: 0,
@@ -45,6 +52,7 @@ function documentToDraft(document: BillDocument): BillDraft {
   return {
     title: document.title,
     feeMode: document.feeMode ?? "bill",
+    calculationMode: document.calculationMode ?? "vat-after-service",
     participants: document.participants.map((person) => ({
       id: person.id,
       name: person.name,
@@ -312,7 +320,11 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
                   vatPercent={draft.vatPercent}
                   serviceChargePercent={draft.serviceChargePercent}
                   feeMode={draft.feeMode ?? "bill"}
+                  calculationMode={draft.calculationMode ?? "vat-after-service"}
                   onModeChange={(feeMode: FeeMode) => setDraft((current) => ({ ...current, feeMode }))}
+                  onCalculationModeChange={(calculationMode: CalculationMode) =>
+                    setDraft((current) => ({ ...current, calculationMode }))
+                  }
                   onChange={(key, value) => setDraft((current) => ({ ...current, [key]: value }))}
                 />
                 <PaymentEditor

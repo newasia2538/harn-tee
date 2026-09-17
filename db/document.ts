@@ -23,6 +23,7 @@ export function buildBillDocument(
     status,
     title: draft.title?.trim() ?? "",
     feeMode: draft.feeMode ?? "bill",
+    calculationMode: draft.calculationMode ?? "vat-after-service",
     participants: draft.participants.map((person) => ({
       ...person,
       name: person.name.trim(),
@@ -50,6 +51,7 @@ function hasFinancialChange(patch: BillPatch) {
     patch.participants !== undefined ||
     patch.items !== undefined ||
     patch.feeMode !== undefined ||
+    patch.calculationMode !== undefined ||
     patch.vatPercent !== undefined ||
     patch.serviceChargePercent !== undefined
   );

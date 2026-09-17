@@ -23,6 +23,7 @@ function getCalculation(document: BillDocument) {
   return calculateBill({
     title: document.title,
     feeMode: document.feeMode ?? "bill",
+    calculationMode: document.calculationMode ?? "vat-after-service",
     participants,
     items: document.items,
     vatPercent: document.vatPercent,

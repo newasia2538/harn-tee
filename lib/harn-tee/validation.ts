@@ -6,6 +6,14 @@ export function validateBillDraft(input: BillDraft): ValidationResult {
   const names = new Set<string>();
   const participantIds = new Set(input.participants.map((person) => person.id));
 
+  if (
+    input.calculationMode !== undefined &&
+    input.calculationMode !== "vat-after-service" &&
+    input.calculationMode !== "separate"
+  ) {
+    errors.push("ไม่รู้จักสูตรคำนวณ VAT และ Service charge");
+  }
+
   if (input.participants.length === 0) {
     errors.push("ต้องมีผู้ร่วมบิลอย่างน้อย 1 คน");
   }

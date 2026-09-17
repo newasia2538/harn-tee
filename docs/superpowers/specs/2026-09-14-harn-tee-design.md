@@ -25,6 +25,7 @@ grossTotal = subtotal + serviceCharge + vat
 ```
 
 - Service charge is calculated from the item subtotal first; VAT is then calculated from the subtotal plus service charge.
+- The bill owner can choose between this `vat-after-service` formula and the legacy `separate` formula, where VAT and service charge are each calculated from the item subtotal independently. New bills default to `vat-after-service`; documents without a stored choice use that same default so existing totals do not change.
 - Each item starts with all participants selected as payers.
 - An item is split equally across its selected payers.
 - Currency inputs are positive Thai baht values with two displayed decimals.

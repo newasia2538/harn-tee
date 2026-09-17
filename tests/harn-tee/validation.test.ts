@@ -81,6 +81,16 @@ describe("harn-tee bill validation", () => {
     );
   });
 
+  it("rejects an unknown VAT calculation formula", () => {
+    const result = validateBillDraft({
+      ...validDraft,
+      calculationMode: "unknown" as never,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("ไม่รู้จักสูตรคำนวณ VAT และ Service charge");
+  });
+
   it("validates the selected recipient payment identifiers", () => {
     const result = validateRecipient({
       name: "มิน",

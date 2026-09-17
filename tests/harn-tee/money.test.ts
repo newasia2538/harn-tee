@@ -26,6 +26,29 @@ describe("harn-tee bill calculation", () => {
     expect(result.collectedTotalSatang).toBe(11770);
   });
 
+  it("supports the legacy bill formula when selected", () => {
+    const result = calculateBill(({
+      participants: [{ id: "p1", name: "มิน", order: 0 }],
+      items: [
+        {
+          id: "i1",
+          name: "ข้าว",
+          priceSatang: 10000,
+          payerIds: ["p1"],
+          order: 0,
+        },
+      ],
+      vatPercent: 7,
+      serviceChargePercent: 10,
+      calculationMode: "separate",
+    } as unknown) as Parameters<typeof calculateBill>[0]);
+
+    expect(result.serviceChargeSatang).toBe(1000);
+    expect(result.vatSatang).toBe(700);
+    expect(result.grossTotalSatang).toBe(11700);
+    expect(result.participants[0].amountDueSatang).toBe(11700);
+  });
+
   it("allocates bill-level VAT after each item's allocated service charge", () => {
     const result = calculateBill({
       participants: [
@@ -203,5 +226,35 @@ describe("harn-tee bill calculation", () => {
         totalSatang: 5775,
       },
     ]);
+  });
+
+  it("supports the legacy item formula when selected", () => {
+    const result = calculateBill(({
+      feeMode: "item",
+      participants: [{ id: "p1", name: "มิน", order: 0 }],
+      items: [
+        {
+          id: "i1",
+          name: "พิซซ่า",
+          priceSatang: 10000,
+          payerIds: ["p1"],
+          vatPercent: 7,
+          serviceChargePercent: 10,
+          order: 0,
+        },
+      ],
+      vatPercent: 0,
+      serviceChargePercent: 0,
+      calculationMode: "separate",
+    } as unknown) as Parameters<typeof calculateBill>[0]);
+
+    expect(result.serviceChargeSatang).toBe(1000);
+    expect(result.vatSatang).toBe(700);
+    expect(result.grossTotalSatang).toBe(11700);
+    expect(result.participants[0].lineItems[0]).toMatchObject({
+      serviceChargeSatang: 1000,
+      vatSatang: 700,
+      totalSatang: 11700,
+    });
   });
 });

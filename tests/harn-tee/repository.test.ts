@@ -29,6 +29,7 @@ describe("harn-tee bill documents", () => {
 
     expect(document.status).toBe("draft");
     expect(document.feeMode).toBe("bill");
+    expect(document.calculationMode).toBe("vat-after-service");
     expect(document.participants.map((person) => person.paid)).toEqual([
       false,
       false,
@@ -52,6 +53,21 @@ describe("harn-tee bill documents", () => {
     expect(document.feeMode).toBe("item");
     expect(document.items[0].vatPercent).toBe(7);
     expect(document.items[0].serviceChargePercent).toBe(10);
+  });
+
+  it("stores the selected VAT calculation formula", () => {
+    const document = buildBillDocument({
+      ...draft,
+      calculationMode: "separate",
+    });
+
+    expect(document.calculationMode).toBe("separate");
+
+    const updated = applyBillPatch(document, {
+      calculationMode: "vat-after-service",
+    });
+
+    expect(updated.calculationMode).toBe("vat-after-service");
   });
 
   it("clears payment statuses when a financial patch is applied", () => {

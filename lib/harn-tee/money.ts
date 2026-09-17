@@ -51,6 +51,8 @@ function allocateFeeAcrossItems(
 
 export function calculateBill(input: CalculationInput): CalculationResult {
   const feeMode = input.feeMode ?? "bill";
+  const calculationMode = input.calculationMode ?? "vat-after-service";
+  const vatIncludesServiceCharge = calculationMode === "vat-after-service";
   const subtotalSatang = input.items.reduce(
     (sum, item) => sum + item.priceSatang,
     0,
@@ -82,19 +84,28 @@ export function calculateBill(input: CalculationInput): CalculationResult {
           (sum, item) =>
             sum +
             feeFromPercent(
-              item.priceSatang + (itemServiceCharges.get(item.id) ?? 0),
+              item.priceSatang +
+                (vatIncludesServiceCharge
+                  ? (itemServiceCharges.get(item.id) ?? 0)
+                  : 0),
               item.vatPercent ?? 0,
             ),
           0,
         )
-      : feeFromPercent(subtotalSatang + serviceChargeSatang, input.vatPercent);
+      : feeFromPercent(
+          subtotalSatang + (vatIncludesServiceCharge ? serviceChargeSatang : 0),
+          input.vatPercent,
+        );
   const itemVatCharges =
     feeMode === "item"
       ? new Map(
           input.items.map((item) => [
             item.id,
             feeFromPercent(
-              item.priceSatang + (itemServiceCharges.get(item.id) ?? 0),
+              item.priceSatang +
+                (vatIncludesServiceCharge
+                  ? (itemServiceCharges.get(item.id) ?? 0)
+                  : 0),
               item.vatPercent ?? 0,
             ),
           ]),
@@ -105,7 +116,10 @@ export function calculateBill(input: CalculationInput): CalculationResult {
           new Map(
             input.items.map((item) => [
               item.id,
-              item.priceSatang + (itemServiceCharges.get(item.id) ?? 0),
+              item.priceSatang +
+                (vatIncludesServiceCharge
+                  ? (itemServiceCharges.get(item.id) ?? 0)
+                  : 0),
             ]),
           ),
         );

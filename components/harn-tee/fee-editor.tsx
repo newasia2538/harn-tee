@@ -1,19 +1,23 @@
 import { Percent } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { FeeMode } from "@/lib/harn-tee/types";
+import type { CalculationMode, FeeMode } from "@/lib/harn-tee/types";
 
 export function FeeEditor({
   vatPercent,
   serviceChargePercent,
   feeMode,
+  calculationMode,
   onModeChange,
+  onCalculationModeChange,
   onChange,
 }: {
   vatPercent: number;
   serviceChargePercent: number;
   feeMode: FeeMode;
+  calculationMode: CalculationMode;
   onModeChange: (mode: FeeMode) => void;
+  onCalculationModeChange: (mode: CalculationMode) => void;
   onChange: (key: "vatPercent" | "serviceChargePercent", value: number) => void;
 }) {
   return (
@@ -23,9 +27,7 @@ export function FeeEditor({
           <Percent size={21} />
         </div>
         <CardTitle className="font-display text-2xl text-[#1c4036]">ค่าบริการเพิ่มเติม</CardTitle>
-        <p className="text-sm text-[#6d8176]">
-          Service charge คิดจากยอดสินค้า แล้ว VAT คิดต่อจากยอดสินค้ารวม Service charge
-        </p>
+        <p className="text-sm text-[#6d8176]">เลือกสูตรให้ตรงกับวิธีคิดบนใบเสร็จ</p>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
@@ -48,6 +50,29 @@ export function FeeEditor({
             >
               แยกแต่ละรายการ
               <span className="mt-1 block text-xs font-normal text-[#607387]">ตั้งค่าในแต่ละสินค้า</span>
+            </button>
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <p className="mb-2 text-sm font-semibold text-[#243b53]">สูตรคำนวณ VAT + Service charge</p>
+          <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="สูตรคำนวณ VAT และ Service charge">
+            <button
+              type="button"
+              aria-pressed={calculationMode === "vat-after-service"}
+              onClick={() => onCalculationModeChange("vat-after-service")}
+              className={calculationMode === "vat-after-service" ? "rounded-xl border-2 border-[#185c74] bg-[#e8f2f6] px-4 py-3 text-left text-sm font-bold text-[#123f53]" : "rounded-xl border border-[#cbd8e5] bg-white px-4 py-3 text-left text-sm font-semibold text-[#607387] hover:border-[#82a8ba]"}
+            >
+              สูตรใหม่ · VAT หลัง Service
+              <span className="mt-1 block text-xs font-normal text-[#607387]">สินค้า → Service charge → VAT จากยอดรวม</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={calculationMode === "separate"}
+              onClick={() => onCalculationModeChange("separate")}
+              className={calculationMode === "separate" ? "rounded-xl border-2 border-[#185c74] bg-[#e8f2f6] px-4 py-3 text-left text-sm font-bold text-[#123f53]" : "rounded-xl border border-[#cbd8e5] bg-white px-4 py-3 text-left text-sm font-semibold text-[#607387] hover:border-[#82a8ba]"}
+            >
+              สูตรเดิม · คิดแยกกัน
+              <span className="mt-1 block text-xs font-normal text-[#607387]">VAT และ Service charge คิดจากยอดสินค้าแยกกัน</span>
             </button>
           </div>
         </div>

@@ -61,6 +61,10 @@ export async function PATCH(
     const draft: BillDraft = {
       title: patch.title ?? current.document.title,
       feeMode: patch.feeMode ?? current.document.feeMode ?? "bill",
+      calculationMode:
+        patch.calculationMode ??
+        current.document.calculationMode ??
+        "vat-after-service",
       participants: (patch.participants ?? current.document.participants).map(
         ({ id, name, order }) => ({ id, name, order }),
       ),
