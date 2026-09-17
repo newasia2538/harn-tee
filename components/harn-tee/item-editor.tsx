@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { FeeMode, ItemDraft, ParticipantDraft } from "@/lib/harn-tee/types";
 import { formatBaht } from "@/lib/harn-tee/money";
+import { numberInputValue } from "@/lib/harn-tee/input";
 
 export function ItemEditor({
   items,
@@ -143,7 +144,8 @@ export function ItemEditor({
                       <Input
                         aria-label={"VAT ของรายการที่ " + (index + 1)}
                         inputMode="decimal"
-                        value={item.vatPercent ?? 0}
+                        value={numberInputValue(item.vatPercent)}
+                        placeholder="0"
                         onChange={(event) => onChange(item.id, { vatPercent: Number(event.target.value) || 0 })}
                         min={0}
                         max={100}
@@ -159,7 +161,8 @@ export function ItemEditor({
                       <Input
                         aria-label={"Service charge ของรายการที่ " + (index + 1)}
                         inputMode="decimal"
-                        value={item.serviceChargePercent ?? 0}
+                        value={numberInputValue(item.serviceChargePercent)}
+                        placeholder="0"
                         onChange={(event) => onChange(item.id, { serviceChargePercent: Number(event.target.value) || 0 })}
                         min={0}
                         max={100}

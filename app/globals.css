@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Prompt:wght@500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
@@ -89,7 +90,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: "Noto Sans Thai", "Tahoma", Arial, Helvetica, sans-serif;
+  --font-sans: "IBM Plex Sans Thai", "Noto Sans Thai", "Tahoma", Arial, Helvetica, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
 }
@@ -101,11 +102,11 @@ body {
     radial-gradient(circle at 4% 44%, rgb(24 92 116 / 14%), transparent 28rem),
     var(--background);
   color: var(--foreground);
-  font-family: "Noto Sans Thai", "Tahoma", Arial, Helvetica, sans-serif;
+  font-family: "IBM Plex Sans Thai", "Noto Sans Thai", "Tahoma", Arial, Helvetica, sans-serif;
 }
 
 .font-display {
-  font-family: Georgia, "Noto Serif Thai", serif;
+  font-family: "Prompt", "IBM Plex Sans Thai", "Noto Sans Thai", sans-serif;
 }
 
 /* Bridge legacy component utility colors into the approved Navy & Tangerine theme. */

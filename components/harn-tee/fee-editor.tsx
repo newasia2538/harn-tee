@@ -2,6 +2,7 @@ import { Percent } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CalculationMode, FeeMode } from "@/lib/harn-tee/types";
+import { numberInputValue } from "@/lib/harn-tee/input";
 
 export function FeeEditor({
   vatPercent,
@@ -82,8 +83,9 @@ export function FeeEditor({
           <div className="relative">
             <Input
               inputMode="decimal"
-              value={vatPercent}
+              value={numberInputValue(vatPercent)}
               onChange={(event) => onChange("vatPercent", Number(event.target.value) || 0)}
+              placeholder="0"
               className="h-11 rounded-xl border-[#dfe8df] bg-[#fbfdf9] pr-10"
               min={0}
               max={100}
@@ -97,10 +99,11 @@ export function FeeEditor({
           <div className="relative">
             <Input
               inputMode="decimal"
-              value={serviceChargePercent}
+              value={numberInputValue(serviceChargePercent)}
               onChange={(event) =>
                 onChange("serviceChargePercent", Number(event.target.value) || 0)
               }
+              placeholder="0"
               className="h-11 rounded-xl border-[#dfe8df] bg-[#fbfdf9] pr-10"
               min={0}
               max={100}
