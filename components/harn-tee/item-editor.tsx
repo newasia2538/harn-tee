@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { FeeMode, ItemDraft, ParticipantDraft } from "@/lib/harn-tee/types";
+import { ReceiptScanner } from "@/components/harn-tee/receipt-scanner";
+import type { FeeMode, ItemDraft, ParticipantDraft, ReceiptOcrItem } from "@/lib/harn-tee/types";
 import { formatBaht } from "@/lib/harn-tee/money";
 import { numberInputValue } from "@/lib/harn-tee/input";
 
@@ -15,6 +16,7 @@ export function ItemEditor({
   onChange,
   onAdd,
   onRemove,
+  onImport,
 }: {
   items: ItemDraft[];
   participants: ParticipantDraft[];
@@ -22,6 +24,7 @@ export function ItemEditor({
   onChange: (id: string, patch: Partial<ItemDraft>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  onImport: (items: ReceiptOcrItem[]) => void;
 }) {
   const [priceValues, setPriceValues] = useState<Record<string, string>>({});
 
@@ -186,6 +189,7 @@ export function ItemEditor({
           <Plus size={17} />
           เพิ่มรายการสินค้า
         </Button>
+        <ReceiptScanner participants={participants} onImport={onImport} />
       </CardContent>
     </Card>
   );

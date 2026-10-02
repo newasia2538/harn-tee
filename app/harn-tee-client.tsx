@@ -17,6 +17,7 @@ import { LinkPanel } from "@/components/harn-tee/link-panel";
 import { CopyButton } from "@/components/harn-tee/copy-button";
 import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
 import { calculateBill, formatBaht } from "@/lib/harn-tee/money";
+import { appendReceiptItems, isReceiptItemReady } from "@/lib/harn-tee/receipt-import";
 import { validateBillDraft, validateRecipient } from "@/lib/harn-tee/validation";
 import type {
   BillDocument,
@@ -24,6 +25,7 @@ import type {
   CalculationMode,
   FeeMode,
   RecipientData,
+  ReceiptOcrItem,
 } from "@/lib/harn-tee/types";
 import { registerHarnTeeTools } from "@/lib/harn-tee/webmcp";
 
@@ -141,6 +143,16 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
   const updateItem = (id: string, patch: Partial<BillDraft["items"][number]>) => setDraft((current) => ({
     ...current,
     items: current.items.map((item) => item.id === id ? { ...item, ...patch } : item),
+  }));
+
+  const importReceiptItems = (receiptItems: ReceiptOcrItem[]) => setDraft((current) => ({
+    ...current,
+    items: appendReceiptItems(
+      current.items,
+      receiptItems.filter(isReceiptItemReady),
+      current.participants.map(({ id }) => id),
+      (index) => makeId("item") + "-" + index,
+    ),
   }));
 
   const ensureDraftToken = async () => {
@@ -331,7 +343,7 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
 
             {step === 1 ? (
               <>
-                <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} />
+                <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} onImport={importReceiptItems} />
                 <FeeEditor
                   vatPercent={draft.vatPercent}
                   serviceChargePercent={draft.serviceChargePercent}
