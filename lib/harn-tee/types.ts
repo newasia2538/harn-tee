@@ -18,6 +18,22 @@ export type ItemDraft = {
   order: number;
 };
 
+export type ReceiptOcrLine = {
+  text: string;
+  confidence: number | null;
+};
+
+export type ReceiptOcrItemStatus = "ready" | "needs-review";
+
+export type ReceiptOcrItem = {
+  id: string;
+  name: string;
+  priceSatang: number | null;
+  rawLine: string;
+  confidence: number | null;
+  status: ReceiptOcrItemStatus;
+};
+
 export type BillDraft = {
   title?: string;
   feeMode?: FeeMode;
