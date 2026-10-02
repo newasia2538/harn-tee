@@ -151,4 +151,20 @@ describe("ReceiptScanner", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("keeps the OCR worker alive while scanning multiple times in one session", async () => {
+    mocks.recognizeReceipt.mockResolvedValue(result([{ text: "ข้าว 25", confidence: 90 }]));
+    const user = userEvent.setup();
+    const { onImport } = renderScanner();
+    const input = screen.getByLabelText("เลือกรูปใบเสร็จ");
+
+    await user.upload(input, new File(["receipt-1"], "receipt-1.jpg", { type: "image/jpeg" }));
+    await user.click(await screen.findByRole("button", { name: "เพิ่มเข้ารายการสินค้า" }));
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(mocks.disposeReceiptOcrWorker).not.toHaveBeenCalled();
+
+    await user.upload(screen.getByLabelText("เลือกรูปใบเสร็จ"), new File(["receipt-2"], "receipt-2.jpg", { type: "image/jpeg" }));
+    await screen.findByRole("button", { name: "เพิ่มเข้ารายการสินค้า" });
+    expect(mocks.recognizeReceipt).toHaveBeenCalledTimes(2);
+  });
 });

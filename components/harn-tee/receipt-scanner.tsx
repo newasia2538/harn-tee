@@ -57,10 +57,10 @@ export function ReceiptScanner({
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const cancel = () => {
+  const leaveToIdle = (disposeWorker: boolean) => {
     abortRef.current?.abort();
     abortRef.current = null;
-    void disposeReceiptOcrWorker();
+    if (disposeWorker) void disposeReceiptOcrWorker();
     setRows([]);
     setPriceValues({});
     setErrorMessage("");
@@ -68,6 +68,8 @@ export function ReceiptScanner({
     setState("idle");
     resetInput();
   };
+
+  const cancel = () => leaveToIdle(true);
 
   useEffect(() => () => {
     abortRef.current?.abort();
@@ -138,7 +140,7 @@ export function ReceiptScanner({
   const confirmImport = () => {
     if (rows.length === 0 || rows.some((item) => !isReceiptItemReady(item))) return;
     onImport(rows.filter(isReceiptItemReady).map((item) => ({ ...item })));
-    cancel();
+    leaveToIdle(false);
   };
 
   if (state === "idle") {
