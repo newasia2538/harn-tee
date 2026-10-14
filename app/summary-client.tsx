@@ -3,14 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Check, ChevronRight, RefreshCw, TriangleAlert, WalletCards } from "lucide-react";
+import { Check, ChevronRight, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CopyButton } from "@/components/harn-tee/copy-button";
 import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
-import { BankMark } from "@/components/harn-tee/bank-mark";
-import { getBank } from "@/lib/harn-tee/banks";
+import { PaymentSummary } from "@/components/harn-tee/payment-summary";
 import { calculateBill, formatBaht } from "@/lib/harn-tee/money";
 import type { BillDocument, ParticipantDraft } from "@/lib/harn-tee/types";
 
@@ -40,46 +38,10 @@ function Brand() {
   );
 }
 
-function PaymentPanel({ document, token }: { document: BillDocument; token: string }) {
-  const recipient = document.recipient;
-  if (!recipient.visible) return null;
-  const bank = recipient.bank;
-  const bankInfo = bank ? getBank(bank.bankId) : null;
-  const promptPay = recipient.promptPay;
-  if (!recipient.name && !bank && !promptPay && !recipient.qr) return null;
-  return (
-    <Card className="border-[#dfe8df] bg-white/85 shadow-[0_18px_48px_rgb(32_67_56/6%)]">
-      <CardHeader className="space-y-1">
-        <div className="mb-1 grid h-10 w-10 place-items-center rounded-2xl bg-[#e9f2f4] text-[#397181]"><WalletCards size={19} /></div>
-        <CardTitle className="font-display text-2xl text-[#1c4036]">โอนคืนให้ {recipient.name || "ผู้รับเงิน"}</CardTitle>
-        <p className="text-sm text-[#6d8176]">กดคัดลอกเลขที่ต้องการใช้ได้เลย</p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {bank ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e3ebe1] bg-[#fbfdf9] px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">{bankInfo ? <BankMark bank={bankInfo} size="sm" /> : null}<div className="min-w-0"><p className="text-xs text-[#607387]">บัญชีธนาคาร {bankInfo?.name ?? bank.bankId}</p><p className="mt-1 font-mono text-base font-bold tracking-[0.08em] text-[#243b53]">{bank.accountNumber}</p></div></div>
-            <CopyButton value={bank.accountNumber} label="คัดลอกเลขบัญชี" />
-          </div>
-        ) : null}
-        {promptPay ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e3ebe1] bg-[#fbfdf9] px-4 py-3">
-            <div><p className="text-xs text-[#809087]">PromptPay · {promptPay.type === "phone" ? "เบอร์โทรศัพท์" : "เลขบัตรประชาชน"}</p><p className="mt-1 font-mono text-base font-bold tracking-[0.08em] text-[#315f50]">{promptPay.value}</p></div>
-            <CopyButton value={promptPay.value} label="คัดลอก PromptPay" />
-          </div>
-        ) : null}
-        {recipient.qr ? (
-          <div className="rounded-2xl border border-dashed border-[#cbdccf] bg-[#fbfdf9] p-3">
-            <p className="mb-3 text-sm font-bold text-[#315f50]">สแกน QR เพื่อโอน</p>
-            <Image src={"/api/bills/" + token + "/qr"} alt="QR สำหรับรับเงิน" width={208} height={208} unoptimized className="mx-auto aspect-square rounded-xl bg-white object-contain p-2" />
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
 export function SummaryClient({ token }: { token: string }) {
   const [document, setDocument] = useState<BillDocument | null>(null);
+  const [qrAvailable, setQrAvailable] = useState(false);
+  const [canManage, setCanManage] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -89,9 +51,11 @@ export function SummaryClient({ token }: { token: string }) {
     setLoading(true);
     try {
       const response = await fetch("/api/bills/" + token, { cache: "no-store" });
-      const body = await response.json() as { document?: BillDocument; error?: string };
+      const body = await response.json() as { access?: "share" | "edit"; document?: BillDocument; payment?: { qrAvailable?: boolean }; error?: string };
       if (!response.ok || !body.document) throw new Error(body.error ?? "ไม่พบข้อมูลบิลนี้");
       setDocument(body.document);
+      setQrAvailable(body.payment?.qrAvailable === true);
+      setCanManage(body.access === "edit");
       setLastUpdated(Date.now());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "โหลดบิลไม่สำเร็จ");
@@ -114,8 +78,10 @@ export function SummaryClient({ token }: { token: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ participantId, paid }),
     });
-    const body = await response.json() as { document?: BillDocument };
-    if (response.ok && body.document) setDocument(body.document);
+    const body = await response.json() as { participants?: BillDocument["participants"] };
+    if (response.ok && body.participants) {
+      setDocument((current) => current ? { ...current, participants: body.participants! } : current);
+    }
     setUpdating(null);
   };
 
@@ -153,7 +119,7 @@ export function SummaryClient({ token }: { token: string }) {
             <Card className="border-0 bg-[#173f35] text-white shadow-[0_22px_60px_rgb(23_63_53/20%)]">
               <CardContent className="p-6"><p className="text-sm text-[#b9d8c3]">ยอดตามใบเสร็จ</p><p className="mt-1 font-display text-5xl">{formatBaht(calculation?.grossTotalSatang ?? 0)} <span className="font-sans text-base font-medium text-[#c5ded0]">บาท</span></p><div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm"><div><span className="text-[#b9d8c3]">ยอดที่เรียกเก็บ</span><strong className="mt-1 block">{formatBaht(calculation?.collectedTotalSatang ?? 0)} บาท</strong></div><div><span className="text-[#b9d8c3]">ปัดขึ้นเพิ่ม</span><strong className="mt-1 block text-[#ffd1bd]">+{formatBaht(calculation?.roundingDifferenceSatang ?? 0)} บาท</strong></div></div></CardContent>
             </Card>
-            <PaymentPanel document={document} token={token} />
+            <PaymentSummary key={document.updatedAt} document={document} token={token} qrAvailable={qrAvailable} canManage={canManage} />
             <p className="rounded-xl bg-[#fff8ed] px-4 py-3 text-xs leading-5 text-[#956c4d]">การหารอาจมีการปัดเศษขึ้นในกรณีที่หารกันไม่ลงตัว</p>
           </div>
         </div>

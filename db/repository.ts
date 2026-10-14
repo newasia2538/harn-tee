@@ -138,14 +138,14 @@ export async function setParticipantPaid(
 export async function deleteBillByEditToken(rawToken: string) {
   const found = await findByToken("edit", rawToken);
   if (!found) return false;
-  const document = {
-    ...found.document,
-    status: "deleted" as const,
-    updatedAt: Date.now(),
-  };
+  const qrObjectKey = found.document.recipient.qr?.objectKey;
+  if (qrObjectKey) {
+    if (!env.BUCKET) throw new Error("R2 binding BUCKET is unavailable");
+    await env.BUCKET.delete(qrObjectKey);
+  }
   await database()
-    .prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2 WHERE id = ?3")
-    .bind(JSON.stringify(document), document.updatedAt, found.row.id)
+    .prepare("DELETE FROM bills WHERE id = ?1")
+    .bind(found.row.id)
     .run();
   return true;
 }
@@ -189,6 +189,9 @@ export async function readQrByToken(rawToken: string) {
   const access = await readBillByToken("share", rawToken);
   const editAccess = access ?? (await readBillByToken("edit", rawToken));
   if (!editAccess || !env.BUCKET) return null;
+  if (editAccess.access === "share" && editAccess.document.recipient.visible === false) {
+    return null;
+  }
   const objectKey = editAccess.document.recipient.qr?.objectKey;
   if (!objectKey) return null;
   return env.BUCKET.get(objectKey);

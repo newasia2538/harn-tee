@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "harn-tee — หารที",
   description: "ช่วยหารบิลที่เราจ่ายกันไปแบบชัดเจนและตรวจสอบได้",
+  referrer: "no-referrer",
   other: {
     "codex-preview": "development",
   },
