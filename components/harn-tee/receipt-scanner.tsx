@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Plus, Trash2 } from "lucide-react";
+import Image from "next/image";
+import { Camera, Check, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatBaht } from "@/lib/harn-tee/money";
 import { isReceiptItemReady } from "@/lib/harn-tee/receipt-import";
-import { parseReceiptLines } from "@/lib/harn-tee/receipt-parser";
 import {
   disposeReceiptOcrWorker,
   recognizeReceipt,
@@ -28,7 +28,7 @@ function updateReviewedItem(
   const next = { ...item, ...patch };
   return {
     ...next,
-    status: isReceiptItemReady({ ...next, status: "ready" }) ? "ready" : "needs-review",
+    status: isReceiptItemReady({ ...next, status: "ready" }) && !next.reviewReasons?.length ? "ready" : "needs-review",
   };
 }
 
@@ -47,6 +47,8 @@ export function ReceiptScanner({
   const [errorMessage, setErrorMessage] = useState("");
   const [isEmptyResult, setIsEmptyResult] = useState(false);
   const [priceValues, setPriceValues] = useState<Record<string, string>>({});
+  const [subtotalSatang, setSubtotalSatang] = useState<number | null>(null);
+  const [ignoredLines, setIgnoredLines] = useState<string[]>([]);
   const [progress, setProgress] = useState<ReceiptOcrProgress>({
     phase: "preparing",
     progress: 0,
@@ -63,6 +65,8 @@ export function ReceiptScanner({
     if (disposeWorker) void disposeReceiptOcrWorker();
     setRows([]);
     setPriceValues({});
+    setSubtotalSatang(null);
+    setIgnoredLines([]);
     setErrorMessage("");
     setIsEmptyResult(false);
     setState("idle");
@@ -93,7 +97,7 @@ export function ReceiptScanner({
         onProgress: setProgress,
       });
       if (controller.signal.aborted) return;
-      const parsedRows = parseReceiptLines(result.lines);
+      const parsedRows = result.items;
       if (parsedRows.length === 0) {
         setRows([]);
         setErrorMessage("อ่านไม่พบรายการ");
@@ -102,11 +106,13 @@ export function ReceiptScanner({
         return;
       }
       setRows(parsedRows);
+      setSubtotalSatang(result.subtotalSatang);
+      setIgnoredLines(result.ignoredLines);
       setState("review");
     } catch (caught) {
       if (caught instanceof Error && caught.name === "AbortError") return;
       const message = caught instanceof Error ? caught.message : "";
-      const isUserFacingError = /^(ไฟล์ต้องเป็นรูปภาพ|ไฟล์ใบเสร็จต้องมีขนาด|เปิดรูปใบเสร็จไม่ได้|เตรียมรูปใบเสร็จไม่ได้|แปลงรูปใบเสร็จไม่ได้)/.test(message);
+      const isUserFacingError = /^(ไฟล์ต้องเป็นรูปภาพ|ไฟล์ใบเสร็จต้องมีขนาด|เปิดรูปใบเสร็จไม่ได้|เตรียมรูปใบเสร็จไม่ได้|แปลงรูปใบเสร็จไม่ได้|รูปใบเสร็จยาวเกินไป|ขนาดรูปใบเสร็จ|กรุณาเลือกรูปใบเสร็จ)/.test(message);
       setErrorMessage(isUserFacingError ? message : "อ่านใบเสร็จไม่สำเร็จ กรุณาลองใหม่หรือกรอกเอง");
       setIsEmptyResult(false);
       setState("error");
@@ -139,7 +145,7 @@ export function ReceiptScanner({
 
   const confirmImport = () => {
     if (rows.length === 0 || rows.some((item) => !isReceiptItemReady(item))) return;
-    onImport(rows.filter(isReceiptItemReady).map((item) => ({ ...item })));
+    onImport(rows.filter(isReceiptItemReady).map(({ id, name, priceSatang, rawLine, confidence }) => ({ id, name, priceSatang, rawLine, confidence, status: "ready" })));
     leaveToIdle(false);
   };
 
@@ -215,6 +221,8 @@ export function ReceiptScanner({
   }
 
   const canImport = rows.length > 0 && rows.every(isReceiptItemReady);
+  const sumSatang = rows.reduce((sum, item) => sum + (item.priceSatang ?? 0), 0);
+  const subtotalMismatch = subtotalSatang !== null && rows.every((item) => item.priceSatang !== null) && sumSatang !== subtotalSatang;
   return (
     <Card className="border-[#d6e5dc] bg-[#f9fcf8] shadow-none">
       <CardHeader className="space-y-1 p-4 pb-2">
@@ -227,8 +235,11 @@ export function ReceiptScanner({
         </p>
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-2">
+        {subtotalMismatch ? <p role="status" className="rounded-xl bg-[#fff0e5] p-3 text-sm leading-6 text-[#88492e]">ยอดสินค้าที่อ่านได้ {formatBaht(sumSatang)} บาท ต่างจากยอดสินค้าในใบเสร็จ {formatBaht(subtotalSatang)} บาท กรุณาตรวจรายการที่ตกหล่นหรือราคาที่คลาดเคลื่อน</p> : null}
+        {ignoredLines.length ? <details className="rounded-xl bg-[#eef6ef] px-3 py-2 text-xs leading-5 text-[#456353]"><summary className="cursor-pointer">ข้อความอื่นที่ไม่ได้นำเข้า {ignoredLines.length} บรรทัด</summary><p className="mt-2 whitespace-pre-line break-words">{ignoredLines.join("\n")}</p></details> : null}
         {rows.map((item, index) => (
           <div key={item.id} className="rounded-xl border border-[#dfeae1] bg-white p-3">
+            {item.previewUrl ? <Image src={item.previewUrl} alt={`ภาพรายการที่ ${index + 1}`} width={600} height={120} unoptimized className="mb-3 h-auto max-h-32 w-full rounded-lg border border-[#e4ece6] bg-white object-contain" /> : null}
             <div className="flex items-start gap-2">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#eef6ef] text-xs font-bold text-[#688177]">
                 {index + 1}
@@ -273,6 +284,13 @@ export function ReceiptScanner({
                 </details>
               ) : null}
             </div>
+            {item.reviewReasons?.length ? <p className="mt-2 break-words pl-10 text-xs leading-5 text-[#88492e]">{item.reviewReasons.join(" · ")}</p> : null}
+            {item.suggestedPriceSatang !== undefined ? <div className="mt-2 pl-10"><Button type="button" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal rounded-xl text-[#315f50]" onClick={() => {
+              const priceSatang = item.suggestedPriceSatang!;
+              setPriceValues((current) => ({ ...current, [item.id]: formatBaht(priceSatang) }));
+              setRows((current) => current.map((row) => row.id === item.id ? { ...row, priceSatang, suggestedPriceSatang: undefined, status: "needs-review" } : row));
+            }}>ใช้ราคา {formatBaht(item.suggestedPriceSatang)} บาท</Button></div> : null}
+            {item.status === "needs-review" ? <div className="mt-2 pl-10"><Button type="button" variant="outline" size="sm" aria-label={`ยืนยันรายการที่ ${index + 1}`} disabled={!isReceiptItemReady({ ...item, status: "ready" })} onClick={() => setRows((current) => current.map((row) => row.id === item.id ? { ...row, status: "ready", reviewReasons: [], suggestedPriceSatang: undefined } : row))} className="rounded-xl border-[#bdcec1] text-[#315f50]"><Check size={14} />ตรวจแล้ว ถูกต้อง</Button></div> : null}
           </div>
         ))}
         <Button type="button" variant="outline" onClick={addRow} className="h-10 w-full rounded-xl border-dashed border-[#bdcec1] text-[#315f50] hover:bg-[#eef7eb]">

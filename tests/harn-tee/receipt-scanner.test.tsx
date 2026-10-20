@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { ReceiptScanner } from "../../components/harn-tee/receipt-scanner";
 import type { ReceiptOcrResult } from "../../lib/harn-tee/receipt-ocr";
 import type { ParticipantDraft } from "../../lib/harn-tee/types";
+import { parseReceiptLines } from "../../lib/harn-tee/receipt-parser";
 
 const mocks = vi.hoisted(() => ({
   recognizeReceipt: vi.fn(),
@@ -17,7 +18,7 @@ vi.mock("@/lib/harn-tee/receipt-ocr", () => mocks);
 const participants: ParticipantDraft[] = [{ id: "person-a", name: "เอ", order: 0 }];
 
 function result(lines: ReceiptOcrResult["lines"]): ReceiptOcrResult {
-  return { rawText: lines.map((line) => line.text).join("\n"), lines };
+  return { rawText: lines.map((line) => line.text).join("\n"), lines, items: parseReceiptLines(lines), ignoredLines: [], subtotalSatang: null };
 }
 
 function renderScanner(onImport = vi.fn()) {
@@ -35,6 +36,36 @@ afterEach(() => {
 });
 
 describe("ReceiptScanner", () => {
+  it("keeps uncertain prices under review while showing the image and accepting an explicit correction", async () => {
+    mocks.recognizeReceipt.mockResolvedValue({
+      ...result([]),
+      items: [{ id: "ocr-1", name: "ชาเย็น", priceSatang: 7500, confidence: 40, status: "needs-review", rawLine: "ชาเย็น 75.00", reviewReasons: ["ราคาอ่านไม่ชัด"], previewUrl: "data:image/png;base64,dGVzdA==", suggestedPriceSatang: 8500 }],
+    });
+    const user = userEvent.setup();
+    const { onImport } = renderScanner();
+    await user.upload(screen.getByLabelText("เลือกรูปใบเสร็จ"), new File(["image"], "receipt.jpg", { type: "image/jpeg" }));
+    expect(await screen.findByRole("img", { name: "ภาพรายการที่ 1" })).toBeTruthy();
+    expect(screen.getByText("ราคาอ่านไม่ชัด")).toBeTruthy();
+    const importButton = screen.getByRole("button", { name: "เพิ่มเข้ารายการสินค้า" });
+    await user.type(screen.getByRole("textbox", { name: "ชื่อรายการที่ 1" }), " ใหญ่");
+    expect(importButton).toHaveProperty("disabled", true);
+    await user.click(screen.getByRole("button", { name: "ใช้ราคา 85.00 บาท" }));
+    expect(screen.getByDisplayValue("85.00")).toBeTruthy();
+    expect(importButton).toHaveProperty("disabled", true);
+    await user.click(screen.getByRole("button", { name: "ยืนยันรายการที่ 1" }));
+    await user.click(importButton);
+    expect(onImport).toHaveBeenCalledWith([expect.objectContaining({ name: "ชาเย็น ใหญ่", priceSatang: 8500, status: "ready" })]);
+    expect(onImport.mock.calls[0][0][0].previewUrl).toBeUndefined();
+  });
+
+  it("shows a receipt subtotal discrepancy without applying extra tax or changing item prices", async () => {
+    mocks.recognizeReceipt.mockResolvedValue({ ...result([{ text: "ข้าว 150", confidence: 90 }]), subtotalSatang: 10000, ignoredLines: ["Cash 200.00"] });
+    const user = userEvent.setup();
+    renderScanner();
+    await user.upload(screen.getByLabelText("เลือกรูปใบเสร็จ"), new File(["image"], "receipt.jpg", { type: "image/jpeg" }));
+    expect(await screen.findByText(/ต่างจากยอดสินค้าในใบเสร็จ/)).toBeTruthy();
+    expect(screen.getByDisplayValue("150.00")).toBeTruthy();
+  });
   it("renders an accessible camera/file input in idle state", () => {
     renderScanner();
 
@@ -77,6 +108,8 @@ describe("ReceiptScanner", () => {
     expect(importButton).toHaveProperty("disabled", true);
 
     await user.type(screen.getByRole("textbox", { name: "ราคาของรายการที่ 1" }), "25");
+    expect(importButton).toHaveProperty("disabled", true);
+    await user.click(screen.getByRole("button", { name: "ยืนยันรายการที่ 1" }));
     expect(importButton).toHaveProperty("disabled", false);
     await user.click(importButton);
     expect(onImport).toHaveBeenCalledWith([

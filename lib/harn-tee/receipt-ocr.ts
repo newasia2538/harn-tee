@@ -1,4 +1,7 @@
-import type { ReceiptOcrLine } from "./types";
+import type { Page, Worker } from "tesseract.js";
+import type { ReceiptBox, ReceiptOcrItem, ReceiptOcrLine } from "./types";
+import { createReceiptCrop, prepareReceiptImage, type PreparedReceiptImage } from "./receipt-image";
+import { analyzeReceiptLines } from "./receipt-parser";
 
 export const MAX_RECEIPT_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -11,19 +14,12 @@ export type ReceiptOcrProgress = {
 export type ReceiptOcrResult = {
   rawText: string;
   lines: ReceiptOcrLine[];
+  items: ReceiptOcrItem[];
+  ignoredLines: string[];
+  subtotalSatang: number | null;
 };
 
-type TesseractWorker = {
-  recognize: (image: Blob | File) => Promise<{
-    data: {
-      text?: string;
-      lines?: Array<{ text?: string; confidence?: number }>;
-    };
-  }>;
-  terminate: () => Promise<unknown>;
-};
-
-let workerPromise: Promise<TesseractWorker> | null = null;
+let workerPromise: Promise<Worker> | null = null;
 let activeProgress: ((progress: ReceiptOcrProgress) => void) | null = null;
 
 function abortError() {
@@ -53,59 +49,34 @@ export function validateReceiptImage(file: File): { valid: true } | { valid: fal
   return { valid: true };
 }
 
-async function prepareReceiptImage(
-  file: File,
-  signal: AbortSignal | undefined,
-  onProgress: ((progress: ReceiptOcrProgress) => void) | undefined,
-): Promise<Blob | File> {
-  throwIfAborted(signal);
-  emitProgress(onProgress, {
-    phase: "preparing",
-    progress: 0.1,
-    message: "กำลังเตรียมรูปใบเสร็จ",
-  });
-
-  // Vitest and server evaluation do not have browser image APIs. The real browser
-  // path below performs the preprocessing before handing the image to Tesseract.
-  if (typeof window === "undefined" || typeof document === "undefined" || typeof Image === "undefined") {
-    return file;
-  }
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error("เปิดรูปใบเสร็จไม่ได้ กรุณาเลือกรูป JPG, PNG หรือ WebP"));
-      element.src = objectUrl;
-    });
-    throwIfAborted(signal);
-
-    const maxDimension = 2000;
-    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("เตรียมรูปใบเสร็จไม่ได้ กรุณาลองใหม่");
-    context.filter = "grayscale(100%) contrast(115%)";
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (result) => (result ? resolve(result) : reject(new Error("แปลงรูปใบเสร็จไม่ได้ กรุณาลองใหม่"))),
-        "image/jpeg",
-        0.92,
-      );
-    });
-    throwIfAborted(signal);
-    return blob;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+function shiftBox(box: ReceiptBox, x: number, y: number): ReceiptBox {
+  return { x0: box.x0 + x, y0: box.y0 + y, x1: box.x1 + x, y1: box.y1 + y };
 }
 
-async function getWorker(): Promise<TesseractWorker> {
+function extractLines(data: Page, x: number, y: number): ReceiptOcrLine[] {
+  const lines = data.blocks?.flatMap((block) => block.paragraphs).flatMap((paragraph) => paragraph.lines);
+  if (!lines?.length) return (data.text ?? "").split(/\r?\n/).map((text) => ({ text, confidence: null }));
+  return lines.map((line) => ({
+    text: line.text,
+    confidence: Number.isFinite(line.confidence) ? line.confidence : null,
+    bbox: shiftBox(line.bbox, x, y),
+    words: (line.words ?? []).map((word) => ({ text: word.text, bbox: shiftBox(word.bbox, x, y), confidence: Number.isFinite(word.confidence) ? word.confidence : null })),
+  }));
+}
+
+function releaseCanvas(canvas: HTMLCanvasElement) {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+function readPrice(text: string): number | null {
+  const token = text.trim();
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(token)) return null;
+  const value = Math.round(Number(token.replace(/,/g, "")) * 100);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+async function getWorker(): Promise<Worker> {
   if (!workerPromise) {
     workerPromise = import("tesseract.js")
       .then(({ createWorker }) => createWorker("tha+eng", 1, {
@@ -117,7 +88,7 @@ async function getWorker(): Promise<TesseractWorker> {
             message: isRecognition ? "กำลังอ่านข้อความในใบเสร็จ" : "กำลังเตรียมตัวอ่านใบเสร็จ",
           });
         },
-      }) as Promise<TesseractWorker>)
+      }))
       .catch((error) => {
         workerPromise = null;
         throw error;
@@ -134,9 +105,19 @@ export async function recognizeReceipt(
   if (!validation.valid) throw new Error(validation.error);
   throwIfAborted(options.signal);
 
-  activeProgress = options.onProgress ?? null;
+  let prepared: PreparedReceiptImage | null = null;
+  let section = 0;
+  let sectionCount = 1;
+  let retrying = false;
+  const report = (progress: ReceiptOcrProgress) => options.onProgress?.(progress.phase === "recognizing" ? {
+    ...progress,
+    progress: retrying ? 0.9 : (section + progress.progress) / sectionCount * 0.85,
+    message: retrying ? "กำลังตรวจราคาที่อ่านไม่ชัด" : `กำลังอ่านส่วนที่ ${section + 1} จาก ${sectionCount}`,
+  } : progress);
+  activeProgress = report;
   try {
-    const image = await prepareReceiptImage(file, options.signal, options.onProgress);
+    emitProgress(options.onProgress, { phase: "preparing", progress: 0, message: "กำลังเตรียมรูปใบเสร็จ" });
+    prepared = await prepareReceiptImage(file, options.signal);
     throwIfAborted(options.signal);
     const worker = await getWorker();
     throwIfAborted(options.signal);
@@ -145,25 +126,63 @@ export async function recognizeReceipt(
       progress: 0,
       message: "กำลังอ่านข้อความในใบเสร็จ",
     });
-    const result = await worker.recognize(image);
-    throwIfAborted(options.signal);
-
-    const rawText = result.data.text ?? "";
-    const lines = result.data.lines?.map((line) => ({
-      text: line.text ?? "",
-      confidence: typeof line.confidence === "number" && Number.isFinite(line.confidence)
-        ? line.confidence
-        : null,
-    })) ?? rawText.split(/\r?\n/).map((text) => ({ text, confidence: null }));
+    const lines: ReceiptOcrLine[] = [];
+    const textParts: string[] = [];
+    sectionCount = prepared.segments.length;
+    for (const segment of prepared.segments) {
+      throwIfAborted(options.signal);
+      const tile = sectionCount === 1 ? prepared.canvas : createReceiptCrop(prepared.canvas, { x0: segment.x, y0: segment.y, x1: segment.x + segment.width, y1: segment.y + segment.height }, { padding: 0, purpose: "segment" });
+      try {
+        const result = await worker.recognize(tile, {}, { blocks: true });
+        throwIfAborted(options.signal);
+        textParts.push(result.data.text ?? "");
+        lines.push(...extractLines(result.data, segment.x, segment.y));
+      } finally {
+        if (tile !== prepared.canvas) releaseCanvas(tile);
+      }
+      section++;
+    }
+    const analysis = analyzeReceiptLines(lines);
+    let retries = 0;
+    for (const item of analysis.items) {
+      throwIfAborted(options.signal);
+      if (item.sourceBox) {
+        const snippet = createReceiptCrop(prepared.canvas, item.sourceBox, { padding: 8 });
+        try { item.previewUrl = snippet.toDataURL("image/png"); } finally { releaseCanvas(snippet); }
+      }
+      if (!item.priceBox || (item.priceConfidence !== null && item.priceConfidence !== undefined && item.priceConfidence >= 75) || retries >= 4) continue;
+      retries++;
+      retrying = true;
+      report({ phase: "recognizing", progress: 0, message: "" });
+      const priceImage = createReceiptCrop(prepared.canvas, item.priceBox, { scale: 2, padding: 6, grayscale: true });
+      try {
+        // Tesseract supports per-call parameters and restores them afterwards;
+        // its RecognizeOptions type lists only the image options.
+        const parameters = { rotateAuto: false, tessedit_pageseg_mode: "7", tessedit_char_whitelist: "0123456789.,-" };
+        const second = await worker.recognize(priceImage, parameters, { blocks: true });
+        throwIfAborted(options.signal);
+        const price = readPrice(second.data.text ?? "");
+        if (price !== null && second.data.confidence >= 80 && price !== item.priceSatang) {
+          item.suggestedPriceSatang = price;
+          item.status = "needs-review";
+          item.reviewReasons = [...(item.reviewReasons ?? []), "อ่านราคาซ้ำได้ค่าต่างกัน กรุณาเทียบกับภาพ"];
+        }
+      } catch (error) {
+        throwIfAborted(options.signal);
+        // An optional price retry must not discard the first OCR result.
+        if (error instanceof Error && error.name === "AbortError") throw error;
+      } finally { releaseCanvas(priceImage); }
+    }
 
     emitProgress(options.onProgress, {
       phase: "recognizing",
       progress: 1,
       message: "อ่านใบเสร็จเสร็จแล้ว",
     });
-    return { rawText, lines };
+    return { rawText: textParts.join("\n"), lines, ...analysis };
   } finally {
-    activeProgress = null;
+    prepared?.dispose();
+    if (activeProgress === report) activeProgress = null;
   }
 }
 

@@ -18,9 +18,19 @@ export type ItemDraft = {
   order: number;
 };
 
+export type ReceiptBox = { x0: number; y0: number; x1: number; y1: number };
+
+export type ReceiptOcrWord = {
+  text: string;
+  confidence: number | null;
+  bbox: ReceiptBox;
+};
+
 export type ReceiptOcrLine = {
   text: string;
   confidence: number | null;
+  bbox?: ReceiptBox;
+  words?: ReceiptOcrWord[];
 };
 
 export type ReceiptOcrItemStatus = "ready" | "needs-review";
@@ -32,6 +42,12 @@ export type ReceiptOcrItem = {
   rawLine: string;
   confidence: number | null;
   status: ReceiptOcrItemStatus;
+  sourceBox?: ReceiptBox;
+  priceBox?: ReceiptBox;
+  priceConfidence?: number | null;
+  reviewReasons?: string[];
+  previewUrl?: string;
+  suggestedPriceSatang?: number;
 };
 
 export type BillDraft = {
