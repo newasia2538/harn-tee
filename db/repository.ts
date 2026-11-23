@@ -12,6 +12,8 @@ import type {
   QrPayment,
 } from "../lib/harn-tee/types";
 import { applyBillPatch, buildBillDocument } from "./document";
+import { draftEnvelope, plainBill, recoverableForm, revisionOf, type BillEnvelope } from "./draft-document";
+import { emptyNumbers, normalizeFormNumbers, sanitizeDraftForm, validateFormForPublication, type DraftAck, type DraftForm, type SafeDraftForm, type WriteResult } from "../lib/harn-tee/draft-state";
 
 type StoredBillRow = {
   id: string;
@@ -30,7 +32,7 @@ function database() {
 }
 
 function rowToDocument(row: StoredBillRow): BillDocument {
-  return JSON.parse(row.payload_json) as BillDocument;
+  return plainBill(JSON.parse(row.payload_json) as BillEnvelope);
 }
 
 async function findByToken(kind: "share" | "edit", rawToken: string) {
@@ -47,7 +49,65 @@ async function findByToken(kind: "share" | "edit", rawToken: string) {
     .first<StoredBillRow>();
 
   if (!row || !(await tokensMatch(rawToken, row[column]))) return null;
-  return { row, document: rowToDocument(row) };
+  return { row, document: rowToDocument(row), envelope: JSON.parse(row.payload_json) as BillEnvelope };
+}
+
+type FoundBill=NonNullable<Awaited<ReturnType<typeof findByToken>>>;
+export class BillConflictError extends Error {constructor(public code="revision-conflict"){super(code);}}
+export class BillValidationError extends Error {constructor(public errors:string[]){super("invalid-bill");}}
+async function conditionalWrite(found:FoundBill,envelope:BillEnvelope,shareDigest=found.row.share_token_digest,draftOnly=false){
+  const result=await database().prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2, share_token_digest = ?3 WHERE id = ?4 AND payload_json = ?5 AND share_token_digest = ?6"+(draftOnly?" AND json_extract(payload_json, '$.status') = 'draft'":""))
+    .bind(JSON.stringify(envelope),envelope.updatedAt,shareDigest,found.row.id,found.row.payload_json,found.row.share_token_digest).run();
+  return result.meta.changes===1;
+}
+async function acknowledgement(found:FoundBill):Promise<DraftAck>{
+  return {id:found.row.id,document:found.document,revision:await revisionOf(found.row.payload_json,found.row.share_token_digest),...(found.document.status==="draft"?{form:recoverableForm(found.envelope)}:{}),...(found.envelope.lastConfirmationId?{lastConfirmationId:found.envelope.lastConfirmationId}:{})};
+}
+function committedBill(found:FoundBill,envelope:BillEnvelope,shareDigest=found.row.share_token_digest):FoundBill{
+  return {row:{...found.row,payload_json:JSON.stringify(envelope),updated_at:envelope.updatedAt,share_token_digest:shareDigest},document:plainBill(envelope),envelope};
+}
+async function checkDraft(editToken:string,revision:string):Promise<FoundBill|WriteResult<never>>{
+  const found=await findByToken("edit",editToken);
+  if(!found||found.document.status==="deleted")return {kind:"not-found"};
+  if(found.document.status!=="draft")return {kind:"conflict",code:"not-draft"};
+  if(await revisionOf(found.row.payload_json,found.row.share_token_digest)!==revision)return {kind:"conflict",code:"revision-conflict"};
+  return found;
+}
+export async function readEditCheckpoint(editToken:string):Promise<DraftAck|null>{
+  const found=await findByToken("edit",editToken);return !found||found.document.status==="deleted"?null:acknowledgement(found);
+}
+export async function createDraftOnce(creationKey:string,form:SafeDraftForm){
+  const editToken=await hashToken("harn-tee:draft-edit:v1:"+creationKey),shareToken=await hashToken("harn-tee:draft-share:v1:"+creationKey);
+  const envelope=draftEnvelope(form),id=crypto.randomUUID();
+  await database().prepare("INSERT OR IGNORE INTO bills (id, share_token_digest, edit_token_digest, payload_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    .bind(id,await hashToken(shareToken),await hashToken(editToken),JSON.stringify(envelope),envelope.createdAt,envelope.updatedAt).run();
+  const found=await findByToken("edit",editToken);if(!found)throw new Error("draft-create-failed");
+  return {...await acknowledgement(found),editToken,...(await tokensMatch(shareToken,found.row.share_token_digest)?{shareToken}:{})};
+}
+export async function saveDraftCheckpoint(editToken:string,revision:string,form:SafeDraftForm):Promise<WriteResult<DraftAck>>{
+  const found=await checkDraft(editToken,revision);if("kind" in found)return found;
+  const envelope=draftEnvelope(form,found.document);
+  if(!await conditionalWrite(found,envelope,undefined,true))return {kind:"conflict",code:"revision-conflict"};
+  return {kind:"ok",value:await acknowledgement(committedBill(found,envelope))};
+}
+export async function issueDraftShareCapability(editToken:string,revision:string):Promise<WriteResult<{shareToken:string;revision:string}>>{
+  const found=await checkDraft(editToken,revision);if("kind" in found)return found;
+  const shareToken=createOpaqueToken(),shareDigest=await hashToken(shareToken),envelope=draftEnvelope(recoverableForm(found.envelope),found.document);
+  if(!await conditionalWrite(found,envelope,shareDigest,true))return {kind:"conflict",code:"revision-conflict"};
+  return {kind:"ok",value:{shareToken,revision:await revisionOf(JSON.stringify(envelope),shareDigest)}};
+}
+export async function publishCheckpoint(editToken:string,revision:string,form:DraftForm,confirmationId:string,shareToken?:string):Promise<WriteResult<DraftAck>>{
+  const found=await findByToken("edit",editToken);if(!found||found.document.status==="deleted")return {kind:"not-found"};
+  if(found.document.status==="published"&&found.envelope.lastConfirmationId===confirmationId)return {kind:"ok",value:await acknowledgement(found)};
+  if(await revisionOf(found.row.payload_json,found.row.share_token_digest)!==revision)return {kind:"conflict",code:"revision-conflict"};
+  if(found.document.status==="draft"&&(!shareToken||!await tokensMatch(shareToken,found.row.share_token_digest)))return {kind:"conflict",code:"share-proof-stale"};
+  const normalized=normalizeFormNumbers(form);
+  normalized.draft={...normalized.draft,recipient:{name:"",bank:null,promptPay:null,visible:true,...normalized.draft.recipient,qr:found.document.recipient.qr}};
+  const validity=validateFormForPublication(normalized);if(!validity.valid)throw new BillValidationError(validity.errors);
+  const patch:BillPatch={...normalized.draft,participants:normalized.draft.participants.map(p=>({...p,paid:false,paidAt:null})),status:"published"};
+  const envelope:BillEnvelope={...applyBillPatch(found.document,patch),lastConfirmationId:confirmationId};
+  if(!await conditionalWrite(found,envelope,undefined,found.document.status==="draft"))return {kind:"conflict",code:"revision-conflict"};
+  return {kind:"ok",value:await acknowledgement(committedBill(found,envelope))};
 }
 
 export async function createBillRecord(
@@ -57,7 +117,7 @@ export async function createBillRecord(
   const id = crypto.randomUUID();
   const shareToken = createOpaqueToken();
   const editToken = createOpaqueToken();
-  const document = buildBillDocument(draft, Date.now(), status);
+  const document = buildBillDocument(status==="draft"?sanitizeDraftForm({draft,step:0,numbers:emptyNumbers()}).draft:draft, Date.now(), status);
 
   await database()
     .prepare(
@@ -99,12 +159,9 @@ export async function updateBillByEditToken(
 ) {
   const found = await findByToken("edit", rawToken);
   if (!found || found.document.status === "deleted") return null;
-  const document = applyBillPatch(found.document, patch);
-
-  await database()
-    .prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2 WHERE id = ?3")
-    .bind(JSON.stringify(document), document.updatedAt, found.row.id)
-    .run();
+  let document = applyBillPatch(found.document, patch);
+  if(document.status==="draft")document={...document,recipient:sanitizeDraftForm({draft:document,step:0,numbers:emptyNumbers()}).draft.recipient!};
+  if(!await conditionalWrite(found,document,undefined,found.document.status==="draft"))throw new BillConflictError();
 
   return document;
 }
@@ -114,12 +171,12 @@ export async function setParticipantPaid(
   participantId: string,
   paid: boolean,
 ) {
-  const access = await readBillByToken("share", rawToken);
-  const editAccess = access ?? (await readBillByToken("edit", rawToken));
-  if (!editAccess) return null;
+  let found=await findByToken("share",rawToken);
+  if(!found||found.document.status!=="published")found=await findByToken("edit",rawToken);
+  if(!found||found.document.status!=="published")return null;
   const document: BillDocument = {
-    ...editAccess.document,
-    participants: editAccess.document.participants.map((person) =>
+    ...found.document,
+    participants: found.document.participants.map((person) =>
       person.id === participantId
         ? { ...person, paid, paidAt: paid ? Date.now() : null }
         : person,
@@ -127,10 +184,7 @@ export async function setParticipantPaid(
     updatedAt: Date.now(),
   };
 
-  await database()
-    .prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2 WHERE id = ?3")
-    .bind(JSON.stringify(document), document.updatedAt, editAccess.id)
-    .run();
+  if(!await conditionalWrite(found,{...document,...(found.envelope.lastConfirmationId?{lastConfirmationId:found.envelope.lastConfirmationId}:{})}))throw new BillConflictError();
 
   return document;
 }
