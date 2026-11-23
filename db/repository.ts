@@ -204,12 +204,18 @@ export async function deleteBillByEditToken(rawToken: string) {
   return true;
 }
 
+type QrSaveOptions={revision:string;mode:"draft"|"confirm"};
+export function saveQrForEditToken(rawToken:string,file:File):Promise<BillDocument|null>;
+export function saveQrForEditToken(rawToken:string,file:File,options:QrSaveOptions):Promise<DraftAck|null>;
 export async function saveQrForEditToken(
   rawToken: string,
   file: File,
-): Promise<BillDocument | null> {
+  options?:QrSaveOptions,
+): Promise<BillDocument | DraftAck | null> {
   const found = await findByToken("edit", rawToken);
   if (!found || found.document.status === "deleted" || !env.BUCKET) return null;
+  if(options?.mode==="draft"&&found.document.status!=="draft")throw new BillConflictError("not-draft");
+  if(options&&await revisionOf(found.row.payload_json,found.row.share_token_digest)!==options.revision)throw new BillConflictError();
 
   const extension = file.type.split("/")[1] ?? "png";
   const objectKey = "bills/" + found.row.id + "/" + crypto.randomUUID() + "." + extension;
@@ -218,7 +224,6 @@ export async function saveQrForEditToken(
   });
 
   const previousKey = found.document.recipient.qr?.objectKey;
-  if (previousKey) await env.BUCKET.delete(previousKey);
 
   const qr: QrPayment = {
     objectKey,
@@ -231,12 +236,12 @@ export async function saveQrForEditToken(
     updatedAt: Date.now(),
   };
 
-  await database()
-    .prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2 WHERE id = ?3")
-    .bind(JSON.stringify(document), document.updatedAt, found.row.id)
-    .run();
-
-  return document;
+  const envelope:BillEnvelope=found.document.status==="draft"?draftEnvelope(recoverableForm(found.envelope),document):{...document,...(found.envelope.lastConfirmationId?{lastConfirmationId:found.envelope.lastConfirmationId}:{})};
+  if(!await conditionalWrite(found,envelope,undefined,found.document.status==="draft")){
+    await env.BUCKET.delete(objectKey).catch(()=>undefined);throw new BillConflictError();
+  }
+  if(previousKey)await env.BUCKET.delete(previousKey).catch(()=>{console.warn("qr-cleanup-failed");});
+  return options?acknowledgement(committedBill(found,envelope)):plainBill(envelope);
 }
 
 export async function readQrByToken(rawToken: string) {

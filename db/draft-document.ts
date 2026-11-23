@@ -16,7 +16,7 @@ export function recoverableForm(document:BillEnvelope):SafeDraftForm {
 }
 export function draftEnvelope(form:DraftForm,current?:BillDocument):BillEnvelope {
   const safe=sanitizeDraftForm(form);
-  safe.draft.recipient={...safe.draft.recipient!,qr:current?.recipient.qr??null};
+  safe.draft.recipient={name:"",bank:null,promptPay:null,visible:true,...safe.draft.recipient,qr:current?.recipient.qr??null};
   const document=buildBillDocument(safe.draft,Date.now(),"draft");
   return {...document,createdAt:current?.createdAt??document.createdAt,draftForm:safe};
 }

@@ -146,6 +146,7 @@ export async function PATCH(
     if (error instanceof InvalidJsonBodyError) {
       return json({ error: "รูปแบบข้อมูลที่ส่งมาแก้ไขไม่ถูกต้อง" }, { status: 400 });
     }
+    if(error instanceof Error&&error.message==="revision-conflict")return json({error:"ข้อมูลบิลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุด",code:"revision-conflict"},{status:409});
     console.error("Failed to update bill", error);
     return json({ error: "บันทึกบิลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
   }

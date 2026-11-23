@@ -41,6 +41,7 @@ export async function POST(
     if (error instanceof InvalidJsonBodyError) {
       return json({ error: "รูปแบบข้อมูลสถานะไม่ถูกต้อง" }, { status: 400 });
     }
+    if(error instanceof Error&&error.message==="revision-conflict")return json({error:"ข้อมูลบิลเปลี่ยนแล้ว กรุณาลองใหม่",code:"revision-conflict"},{status:409});
     console.error("Failed to update payment status", error);
     return json({ error: "อัปเดตสถานะไม่สำเร็จ" }, { status: 500 });
   }

@@ -18,6 +18,10 @@ export function conditionalBillDb(){
         if(!row||row.payload_json!==oldPayload||row.share_token_digest!==oldShare||(sql.includes("json_extract")&&JSON.parse(row.payload_json).status!=="draft"))return {success:true,meta:{changes:0}};
         const changed={...row,payload_json:payload,updated_at:updated,share_token_digest:share};rows.set(id,changed);hooks.afterUpdate?.(changed);return {success:true,meta:{changes:1}};
       }
+      if(sql==="UPDATE bills SET payload_json = ?1, updated_at = ?2 WHERE id = ?3"){
+        const [payload,updated,id]=values as [string,number,string],row=rows.get(id);if(!row)return {success:true,meta:{changes:0}};
+        rows.set(id,{...row,payload_json:payload,updated_at:updated});return {success:true,meta:{changes:1}};
+      }
       throw new Error("Unexpected SQL in conditional database adapter");
     },
   };}};}};
