@@ -2,7 +2,7 @@
 
 Date: 2026-11-23 (Asia/Bangkok)
 
-Status: Proposed design; approach A selected by the user. Design approval is still required before implementation planning or application changes.
+Status: Approved by the user on 2026-11-23. Approach A is selected. Implementation planning is authorized; application changes wait for plan review and execution handoff.
 
 ## Intent
 
@@ -163,4 +163,4 @@ Before implementation is considered complete, verify at least:
 
 The exact checkpoint schema, IndexedDB store layout, draft API route names, revision representation, debounce interval, safe retry implementation and component boundaries are implementation decisions, provided the contracts above hold. Prefer extending current modules and storage bindings rather than introducing a new framework or service.
 
-User approval of this document is the gate to writing an implementation plan. No application implementation or deployment is part of this design-only step.
+The user approved this design on 2026-11-23. The next deliverable is an implementation plan for review; no application implementation or deployment is part of the design/planning step.
