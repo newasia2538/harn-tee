@@ -48,4 +48,12 @@ describe("native draft storage",()=>{
   it("reports an unavailable factory instead of pretending nothing was saved",async()=>{
     await expect(openDraftStore(undefined)).rejects.toThrow();
   });
+  it("opens a separate published-edit checkpoint without replacing the creation receipt",async()=>{
+    const store=await openDraftStore(new IDBFactory());let start=await store.startNew();
+    start=await store.bindEditContext(start.localId,"edit",start.localVersion);
+    await store.writeCompletion({kind:"complete",schemaVersion:1,localId:start.localId,localVersion:start.localVersion,billId:"bill",shareUrl:"https://harn-tee.test/share/share",editUrl:"https://harn-tee.test/edit/edit",savedAt:1},start.localVersion);
+    const edited=await store.writeWorking({...start,localId:"edit-working",remote:{id:"bill",editToken:"edit",revision:"r",status:"published"}},null);
+    expect((await store.read({kind:"edit",editToken:"edit"}))?.localId).toBe(edited.localId);
+    expect((await store.read({kind:"new"}))?.kind).toBe("complete");store.close();
+  });
 });

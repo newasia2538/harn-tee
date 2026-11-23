@@ -67,7 +67,12 @@ export async function openDraftStore(factory:IDBFactory|undefined=globalThis.ind
         let previous:Checkpoint|undefined;
         if(expected===null){
           if(await request(records.get(input.localId)))return conflict();
-          const owner=await request<Alias|undefined>(aliases.get(alias));if(owner&&owner.localId!==input.localId)return conflict();
+          const owner=await request<Alias|undefined>(aliases.get(alias));
+          if(owner&&owner.localId!==input.localId){
+            const receipt=parseStoredCheckpoint(await request(records.get(owner.localId)));
+            // A published bill may be edited again without erasing its creation receipt.
+            if(!input.remote||input.remote.status!=="published"||receipt.kind!=="complete"||receipt.billId!==input.remote.id||new URL(receipt.editUrl).pathname!=="/edit/"+encodeURIComponent(input.remote.editToken))return conflict();
+          }
           await request(aliases.put({localId:input.localId},alias));
         }else previous=await current(tx,input.localId,expected);
         if(previous?.kind==="complete")return conflict();
