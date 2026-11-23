@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import {useRouter} from "next/navigation";
 import Image from "next/image";
 import { ArrowLeft, ArrowRight, Check, Clipboard, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +17,16 @@ import { PaymentEditor } from "@/components/harn-tee/payment-editor";
 import { LinkPanel } from "@/components/harn-tee/link-panel";
 import { CopyButton } from "@/components/harn-tee/copy-button";
 import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
+import {DraftRecovery} from "@/components/harn-tee/draft-recovery";
+import {DraftSaveStatus} from "@/components/harn-tee/draft-save-status";
+import {LiveBillTotals} from "@/components/harn-tee/live-bill-totals";
+import {useDraftSession} from "@/lib/harn-tee/use-draft-session";
+import {setNumericInput,validateFormForPublication,type DraftAck,type NumericField} from "@/lib/harn-tee/draft-state";
+import {createDraftApi,type DraftApi,DraftApiError} from "@/lib/harn-tee/draft-api";
+import type {DraftStore} from "@/lib/harn-tee/draft-store";
+import {confirmDraftPublication,RecoveryCopyRequiredError} from "@/lib/harn-tee/draft-publication";
 import { calculateBill, formatBaht } from "@/lib/harn-tee/money";
 import { appendReceiptItems, isReceiptItemReady } from "@/lib/harn-tee/receipt-import";
-import { validateBillDraft, validateRecipient } from "@/lib/harn-tee/validation";
 import type {
   BillDocument,
   BillDraft,
@@ -37,37 +45,6 @@ function emptyRecipient(): RecipientData {
   return { name: "", bank: null, promptPay: null, qr: null, visible: true };
 }
 
-function defaultDraft(): BillDraft {
-  const firstPerson = makeId("person");
-  return {
-    title: "",
-    feeMode: "bill",
-    calculationMode: "vat-after-service",
-    participants: [{ id: firstPerson, name: "", order: 0 }],
-    items: [{ id: makeId("item"), name: "", priceSatang: 0, payerIds: [firstPerson], order: 0 }],
-    vatPercent: 0,
-    serviceChargePercent: 0,
-    recipient: emptyRecipient(),
-  };
-}
-
-function documentToDraft(document: BillDocument): BillDraft {
-  return {
-    title: document.title,
-    feeMode: document.feeMode ?? "bill",
-    calculationMode: document.calculationMode ?? "vat-after-service",
-    participants: document.participants.map((person) => ({
-      id: person.id,
-      name: person.name,
-      order: person.order,
-    })),
-    items: document.items,
-    vatPercent: document.vatPercent,
-    serviceChargePercent: document.serviceChargePercent,
-    recipient: document.recipient,
-  };
-}
-
 function BrandMark() {
   return (
     <Link href="/" className="inline-flex items-center gap-2.5 text-[#1c4036]">
@@ -80,31 +57,40 @@ function BrandMark() {
   );
 }
 
-export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: BillDocument; editToken?: string }) {
-  const isEditMode = Boolean(editToken);
-  const [draft, setDraft] = useState<BillDraft>(() => initialDocument ? documentToDraft(initialDocument) : defaultDraft());
-  const [draftEditToken, setDraftEditToken] = useState(editToken ?? "");
-  const [draftShareToken, setDraftShareToken] = useState("");
-  const [step, setStep] = useState(0);
-  const [qrFile, setQrFile] = useState<File | null>(null);
+export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionDependencies }: { initialDocument?: BillDocument;initialSnapshot?:DraftAck; editToken?: string;sessionDependencies?:{store:DraftStore;api:DraftApi} }) {
+  const router=useRouter();
+  const session=useDraftSession({initialDocument,initialSnapshot,editToken,dependencies:sessionDependencies});
+  const api=useRef(sessionDependencies?.api??createDraftApi()).current;
+  const draft=session.form.draft,step=session.form.step,qrFile=session.qr.kind==="local"?session.qr.file:null;
+  const isEditMode=session.remote?.status==="published";
+  const draftEditToken=session.remote?.editToken;
+  const [newConfirmation,setNewConfirmation]=useState(false);
+  const [recoveryCopy,setRecoveryCopy]=useState<{signature:string;shareUrl?:string;editUrl:string;copied:boolean;acknowledged:boolean}|null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [links, setLinks] = useState<{ shareUrl: string; editUrl: string } | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
   const [paidState, setPaidState] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(initialDocument?.participants.map((person) => [person.id, person.paid]) ?? []),
+    Object.fromEntries((initialDocument??initialSnapshot?.document)?.participants.map((person) => [person.id, person.paid]) ?? []),
   );
   const calculation = useMemo(() => calculateBill(draft), [draft]);
+  const links=session.completion;
+  const setDraft=(updater:(draft:BillDraft)=>BillDraft)=>{setSaved(false);setRecoveryCopy(null);session.setForm(form=>({...form,draft:updater(form.draft)}));};
+  const setStep=(updater:number|((step:number)=>number))=>session.setForm(form=>({...form,step:Math.max(0,Math.min(2,typeof updater==="function"?updater(form.step):updater)) as 0|1|2}));
+  const onNumericChange=(field:NumericField,raw:string)=>{setSaved(false);setRecoveryCopy(null);session.setForm(form=>setNumericInput(form,field,raw));};
+  const report=(caught:unknown)=>setError(caught instanceof DraftApiError?(caught.status===409?"ข้อมูลเปลี่ยนจากอีกหน้าหรืออีกเครื่อง กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก":"เชื่อมต่อไม่สำเร็จ กรุณาลองอีกครั้ง"):caught instanceof Error?caught.message:"บันทึกไม่สำเร็จ กรุณาลองใหม่");
+  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken)router.push("/");};
   const draftRef = useRef(draft);
+  const actionsRef=useRef({setStep,setDraft});
   useEffect(() => {
     draftRef.current = draft;
-  }, [draft]);
+    actionsRef.current={setStep,setDraft};
+  });
 
   useEffect(() => registerHarnTeeTools({
     getDraft: () => draftRef.current,
-    start: () => setStep(0),
-    addItem: (item) => setDraft((current) => ({ ...current, items: [...current.items, item] })),
+    start: () => actionsRef.current.setStep(0),
+    addItem: (item) => actionsRef.current.setDraft((current) => ({ ...current, items: [...current.items, item] })),
   }), []);
 
   const addParticipant = () => {
@@ -135,10 +121,10 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
     }],
   }));
 
-  const removeItem = (id: string) => setDraft((current) => ({
-    ...current,
-    items: current.items.filter((item) => item.id !== id).map((item, index) => ({ ...item, order: index })),
-  }));
+  const removeItem = (id: string) => {setSaved(false);setRecoveryCopy(null);session.setForm(form=>{
+    const without=(map:Record<string,string>)=>Object.fromEntries(Object.entries(map).filter(([key])=>key!==id));
+    return {...form,draft:{...form.draft,items:form.draft.items.filter(item=>item.id!==id).map((item,order)=>({...item,order}))},numbers:{...form.numbers,prices:without(form.numbers.prices),itemVat:without(form.numbers.itemVat),itemService:without(form.numbers.itemService)}};
+  });};
 
   const updateItem = (id: string, patch: Partial<BillDraft["items"][number]>) => setDraft((current) => ({
     ...current,
@@ -155,26 +141,6 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
     ),
   }));
 
-  const ensureDraftToken = async () => {
-    if (isEditMode || draftEditToken) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/bills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...draft, draft: true }),
-      });
-      const body = await response.json() as { error?: string; shareToken?: string; editToken?: string };
-      if (!response.ok || !body.editToken || !body.shareToken) {
-        throw new Error(body.error ?? "สร้างลิงก์แก้ไขไม่สำเร็จ");
-      }
-      setDraftEditToken(body.editToken);
-      setDraftShareToken(body.shareToken);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const nextStep = async () => {
     setError("");
     if (step === 0) {
@@ -183,18 +149,17 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
       if (new Set(names).size !== names.length) return setError("ชื่อคนในบิลต้องไม่ซ้ำกัน");
     }
     if (step === 1) {
-      const validation = validateBillDraft(draft);
+      const validation = validateFormForPublication(session.form,session.qr.kind!=="none");
       if (!validation.valid) return setError(validation.errors[0]);
-      const paymentValidation = validateRecipient(draft.recipient, Boolean(qrFile));
-      if (!paymentValidation.valid) return setError(paymentValidation.errors[0]);
     }
     if (step === 0) {
       try {
-        await ensureDraftToken();
+        setSaving(true);
+        await session.ensureRemote();
         setStep(1);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "สร้างลิงก์แก้ไขไม่สำเร็จ");
-      }
+        report(caught);
+      }finally{setSaving(false);}
       return;
     }
     setStep((current) => Math.min(2, current + 1));
@@ -202,67 +167,53 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
 
   const saveBill = async () => {
     setError("");
-    const validation = validateBillDraft(draft);
-    if (!validation.valid) return setError(validation.errors[0]);
     setSaving(true);
+    let generation="";
     try {
-      const activeEditToken = editToken ?? draftEditToken;
-      const hasExistingDraft = Boolean(activeEditToken);
-      const response = await fetch(hasExistingDraft ? "/api/bills/" + activeEditToken : "/api/bills", {
-        method: hasExistingDraft ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(hasExistingDraft ? { ...draft, status: "published" } : draft),
-      });
-      const body = await response.json() as { error?: string; shareToken?: string; editToken?: string };
-      if (!response.ok) throw new Error(body.error ?? "บันทึกไม่สำเร็จ");
-
-      const returnedEditToken = activeEditToken ?? body.editToken;
-      if (qrFile && returnedEditToken) {
-        const formData = new FormData();
-        formData.append("file", qrFile);
-        const qrResponse = await fetch("/api/bills/" + returnedEditToken + "/qr", { method: "POST", body: formData });
-        if (!qrResponse.ok) throw new Error("อัปโหลด QR ไม่สำเร็จ");
-      }
-
-      if (isEditMode) {
+      const context=await session.prepareSubmission();generation=context.generation;
+      const signature=context.generation+"|"+context.remote.editToken+"|"+(context.remote.shareToken??"");
+      const result=await confirmDraftPublication(context,{api,rememberRemote:session.rememberRemote},{recoveryCopyAcknowledged:recoveryCopy?.signature===signature&&recoveryCopy.copied&&recoveryCopy.acknowledged});
+      if (context.remote.status==="published") {
+        await session.completePublishedUpdate(result.document,result.remote);
         setPaidState(Object.fromEntries(draft.participants.map((person) => [person.id, false])));
         setSaved(true);
-      } else if (hasExistingDraft && draftShareToken) {
-        setLinks({
-          shareUrl: window.location.origin + "/share/" + draftShareToken,
-          editUrl: window.location.origin + "/edit/" + activeEditToken,
-        });
-      } else if (body.shareToken && body.editToken) {
-        setLinks({
-          shareUrl: window.location.origin + "/share/" + body.shareToken,
-          editUrl: window.location.origin + "/edit/" + body.editToken,
-        });
       } else {
-        throw new Error("สร้างลิงก์ไม่สำเร็จ");
+        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
       }
+      setRecoveryCopy(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "บันทึกไม่สำเร็จ กรุณาลองใหม่");
+      if(caught instanceof RecoveryCopyRequiredError){
+        const remote=caught.remote;setRecoveryCopy({signature:generation+"|"+remote.editToken+"|"+(remote.shareToken??""),shareUrl:remote.shareToken?window.location.origin+"/share/"+remote.shareToken:undefined,editUrl:window.location.origin+"/edit/"+remote.editToken,copied:false,acknowledged:false});
+        setError("บันทึกดราฟต์ในเครื่องไม่ได้ กรุณาคัดลอกลิงก์กู้คืนและยืนยันว่าเก็บไว้แล้ว ก่อนลองยืนยันบิลอีกครั้ง");
+      }else report(caught);
+      session.failSubmission(caught);
     } finally {
       setSaving(false);
     }
   };
 
   const toggleAdminPaid = async (participantId: string) => {
-    if (!editToken) return;
+    if (!draftEditToken||!isEditMode) return;
     const nextPaid = !paidState[participantId];
-    const response = await fetch("/api/bills/" + editToken + "/status", {
+    const response = await fetch("/api/bills/" + draftEditToken + "/status", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json","If-Match":`"${session.remote!.revision}"` },
       body: JSON.stringify({ participantId, paid: nextPaid }),
     });
-    if (response.ok) setPaidState((current) => ({ ...current, [participantId]: nextPaid }));
+    if(response.status===409){const conflict=new DraftApiError(409,"revision-conflict");session.failSubmission(conflict);report(conflict);return;}
+    if(response.ok){const body=await response.json() as {revision:string};setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
   };
+
+  if(session.phase==="hydrating")return <main className="mx-auto max-w-2xl p-6 text-[#243b53]"><BrandMark/><p role="status" className="mt-8">กำลังโหลดดราฟต์…</p>{session.remoteSave.status==="error"&&<Button onClick={()=>void session.loadLatest().catch(report)}>ลองโหลดอีกครั้ง</Button>}{error&&<p role="alert">{error}</p>}</main>;
+  if(session.phase==="recovery"&&session.recovery)return <main className="mx-auto max-w-2xl p-6"><BrandMark/><DraftRecovery candidate={session.recovery} onResume={()=>void session.resume().catch(report)} onStartFresh={()=>void startNew().catch(report)}/></main>;
 
   if (links) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-14">
         <BrandMark />
-        <div className="mt-10"><LinkPanel shareUrl={links.shareUrl} editUrl={links.editUrl} /></div>
+        <div className="mt-10"><LinkPanel shareUrl={links.shareUrl} editUrl={links.editUrl} onStartNew={()=>setNewConfirmation(true)}/></div>
+        {session.localSave.status==="error"&&<p className="mt-4 rounded-xl bg-[#fff5df] p-4 text-sm text-[#79521e]">บันทึกบิลสำเร็จแล้ว แต่จำหน้านี้ในเครื่องไม่ได้ กรุณาเก็บลิงก์แก้ไขไว้</p>}
+        {newConfirmation&&<section className="mt-4 space-y-3 rounded-xl border bg-white p-4 text-[#243b53]"><p>เก็บลิงก์แก้ไขบิลเดิมไว้ก่อนนะ บิลเดิมและลิงก์แชร์ยังใช้งานได้</p><Button onClick={()=>void startNew().catch(report)}>เก็บลิงก์แล้ว เริ่มบิลใหม่</Button><Button variant="ghost" onClick={()=>setNewConfirmation(false)}>ยกเลิก</Button></section>}
       </div>
     );
   }
@@ -305,6 +256,7 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
             </div>
           </section>
           <Stepper current={step} />
+          <DraftSaveStatus local={session.localSave} remote={session.remoteSave} onRetry={session.retrySave} onLoadLatest={()=>void session.loadLatest().catch(report)}/>
           {draftEditToken && !isEditMode ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#eadfd2] bg-[#fffaf4] px-4 py-3 text-sm text-[#8d6d59]">
               <span>ลิงก์แก้ไขถูกสร้างแล้ว เก็บไว้ก่อนกรอกต่อได้เลย</span>
@@ -312,7 +264,7 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
             </div>
           ) : null}
 
-          <div className="mt-6 space-y-5">
+          <fieldset disabled={saving||session.phase==="submitting"} className="mt-6 min-w-0 space-y-5">
             {step === 0 ? (
               <>
                 <Card className="border-[#dfe8df] bg-white/85 shadow-[0_22px_60px_rgb(32_67_56/7%)]">
@@ -343,7 +295,8 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
 
             {step === 1 ? (
               <>
-                <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} onImport={importReceiptItems} />
+                <LiveBillTotals form={session.form}/>
+                <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} onImport={importReceiptItems} numbers={session.form.numbers} onNumericChange={onNumericChange}/>
                 <FeeEditor
                   vatPercent={draft.vatPercent}
                   serviceChargePercent={draft.serviceChargePercent}
@@ -354,12 +307,15 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
                     setDraft((current) => ({ ...current, calculationMode }))
                   }
                   onChange={(key, value) => setDraft((current) => ({ ...current, [key]: value }))}
+                  numbers={session.form.numbers}
+                  onNumericChange={onNumericChange}
                 />
                 <PaymentEditor
                   recipient={draft.recipient ?? emptyRecipient()}
                   qrFile={qrFile}
                   onChange={(recipient) => setDraft((current) => ({ ...current, recipient }))}
-                  onQrChange={setQrFile}
+                  onQrChange={file=>{if(file)void session.selectQr(file).catch(report);}}
+                  nationalIdReentryRequired={"paymentReentryRequired" in session.form&&Boolean(session.form.paymentReentryRequired)}
                 />
               </>
             ) : null}
@@ -404,6 +360,11 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
             ) : null}
 
             {error ? <div className="rounded-xl border border-[#f1c5b7] bg-[#fff3ef] px-4 py-3 text-sm font-semibold text-[#b84d38]" role="alert">{error}</div> : null}
+            {recoveryCopy&&<section className="space-y-3 rounded-xl border bg-[#fff5df] p-4 text-sm text-[#79521e]">
+              <p>การทำต่อครั้งนี้จะจำลิงก์ในเครื่องไม่ได้ เก็บลิงก์เหล่านี้เพื่อกู้คืนบิล</p>
+              <Button variant="outline" onClick={async()=>{try{await navigator.clipboard.writeText([recoveryCopy.editUrl,recoveryCopy.shareUrl].filter(Boolean).join("\n"));setRecoveryCopy({...recoveryCopy,copied:true});}catch{setError("คัดลอกไม่สำเร็จ กรุณาลองอีกครั้ง");}}}>{recoveryCopy.copied?"คัดลอกลิงก์กู้คืนแล้ว":"คัดลอกลิงก์กู้คืน"}</Button>
+              <label className="flex items-center gap-2"><input type="checkbox" disabled={!recoveryCopy.copied} checked={recoveryCopy.acknowledged} onChange={event=>setRecoveryCopy({...recoveryCopy,acknowledged:event.target.checked})}/>ฉันเก็บลิงก์กู้คืนแล้ว</label>
+            </section>}
 
             <div className="flex items-center justify-between gap-3">
               {step > 0 ? (
@@ -422,7 +383,7 @@ export function HarnTeeApp({ initialDocument, editToken }: { initialDocument?: B
               )}
             </div>
             {saved ? <div className="rounded-xl border border-[#bfdcc8] bg-[#eff9f0] px-4 py-3 text-sm font-semibold text-[#2f7256]">บันทึกการแก้ไขแล้ว ลองเปิด share link เพื่อดูผลล่าสุด</div> : null}
-          </div>
+          </fieldset>
         </div>
       </div>
       {selectedPerson ? (

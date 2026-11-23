@@ -227,6 +227,7 @@ export function ReceiptScanner({
     <Card className="border-[#d6e5dc] bg-[#f9fcf8] shadow-none">
       <CardHeader className="space-y-1 p-4 pb-2">
         <CardTitle className="text-xl text-[#1c4036]">ตรวจสอบรายการจากใบเสร็จ</CardTitle>
+        <p className="text-sm leading-6 text-[#79521e]">รูปบิลและรายการที่ยังไม่นำเข้าจะไม่ถูกบันทึก หากออกจากหน้านี้ต้องสแกนใหม่</p>
         <p className="text-sm leading-6 text-[#6d8176]">
           ระบบอ่านจากภาพ อาจคลาดเคลื่อน กรุณาตรวจสอบทุกรายการก่อนยืนยัน
         </p>

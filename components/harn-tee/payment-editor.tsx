@@ -6,17 +6,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RecipientData } from "@/lib/harn-tee/types";
 import { banks, getBank } from "@/lib/harn-tee/banks";
 import { BankMark } from "@/components/harn-tee/bank-mark";
+import {changePromptPayType} from "@/lib/harn-tee/draft-state";
 
 export function PaymentEditor({
   recipient,
   qrFile,
   onChange,
   onQrChange,
+  nationalIdReentryRequired,
 }: {
   recipient: RecipientData;
   qrFile: File | null;
   onChange: (recipient: RecipientData) => void;
   onQrChange: (file: File | null) => void;
+  nationalIdReentryRequired?:boolean;
 }) {
   const [bankOpen, setBankOpen] = useState(false);
   const selectedBank = recipient.bank ? getBank(recipient.bank.bankId) : null;
@@ -90,12 +93,7 @@ export function PaymentEditor({
             <select
               value={recipient.promptPay?.type ?? ""}
               onChange={(event) =>
-                onChange({
-                  ...recipient,
-                  promptPay: event.target.value
-                    ? { type: event.target.value as "phone" | "national-id", value: recipient.promptPay?.value ?? "" }
-                    : null,
-                })
+                onChange(changePromptPayType(recipient,event.target.value as "phone"|"national-id"||null))
               }
               className="h-11 w-full rounded-xl border border-[#dfe8df] bg-[#fbfdf9] px-3 text-sm text-[#315247] outline-none focus:border-[#78a48f] focus:ring-2 focus:ring-[#d9eee0]"
             >
@@ -113,15 +111,17 @@ export function PaymentEditor({
                 onChange({
                   ...recipient,
                   promptPay: recipient.promptPay
-                    ? { ...recipient.promptPay, value: event.target.value.replace(/\D/g, "") }
+                    ? { ...recipient.promptPay, value: event.target.value.replace(/\D/g, "").slice(0,recipient.promptPay.type==="phone"?10:13) }
                     : null,
                 })
               }
               placeholder="10 หรือ 13 หลัก"
+              maxLength={recipient.promptPay?.type==="phone"?10:13}
               className="h-11 rounded-xl border-[#dfe8df] bg-[#fbfdf9]"
             />
           </label>
         </div>
+        {(recipient.promptPay?.type==="national-id"||nationalIdReentryRequired)&&<p role="note" className="rounded-xl bg-[#fff5df] p-3 text-sm leading-6 text-[#79521e]">เพื่อความเป็นส่วนตัว เลขประชาชน PromptPay จะไม่ถูกบันทึกในดราฟต์ หากปิดหรือรีเฟรชหน้านี้ กรุณากรอกใหม่</p>}
         <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#e0e9df] bg-[#fbfdf9] px-3 py-3 text-sm text-[#48675a]">
           <Checkbox
             checked={recipient.visible}

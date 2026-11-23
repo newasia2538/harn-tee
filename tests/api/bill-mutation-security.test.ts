@@ -35,6 +35,17 @@ const current: BillDocument = {
 };
 
 describe("bill mutation input security", () => {
+  it("reports a concurrent legacy financial write as a conflict",async()=>{
+    repository.readBillByToken.mockResolvedValue({id:"bill-1",document:current,access:"edit"});
+    repository.updateBillByEditToken.mockRejectedValueOnce(new Error("revision-conflict"));
+    const response=await updateBill(new Request("https://harn-tee.test",{method:"PATCH",body:JSON.stringify({title:"new"})}),{params:Promise.resolve({token:"edit-key"})});
+    expect(response.status).toBe(409);
+  });
+  it("reports a concurrent paid-status write as a conflict",async()=>{
+    repository.setParticipantPaid.mockRejectedValueOnce(new Error("revision-conflict"));
+    const response=await updatePaymentStatus(new Request("https://harn-tee.test",{method:"POST",body:JSON.stringify({participantId:"p1",paid:true})}),{params:Promise.resolve({token:"share-key"})});
+    expect(response.status).toBe(409);
+  });
   it("rejects an oversized create request before parsing or persisting it", async () => {
     repository.createBillRecord.mockClear();
     const request = new Request("https://harn-tee.test/api/bills", {

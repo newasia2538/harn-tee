@@ -5,6 +5,7 @@ import {
 } from "../../../../../db/repository";
 import { readFormDataBody, RequestBodyTooLargeError, InvalidFormDataBodyError } from "../../../../../lib/harn-tee/request-body";
 import { hasValidQrImageSignature } from "../../../../../lib/harn-tee/qr-image";
+import {draftJson,requiredRevision,withDraftErrors,DraftRequestError} from "../../../../../lib/harn-tee/draft-http";
 
 const MAX_QR_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_QR_REQUEST_BYTES = 6 * 1024 * 1024;
@@ -38,10 +39,16 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
+  return withDraftErrors(async()=>{
   const { token } = await context.params;
   if (!(await readBillByToken("edit", token))) {
     return json({ error: "ลิงก์แก้ไขไม่ถูกต้อง" }, { status: 404 });
   }
+  const mode=request.headers.get("X-Harn-Tee-Save-Mode"),conditional=request.headers.has("If-Match")||mode!==null;
+  const revision=conditional?requiredRevision(request):undefined;
+  const selectionId=request.headers.get("X-Harn-Tee-Qr-Selection")??undefined;
+  if(selectionId&&!/^[A-Za-z0-9_-]{1,80}$/.test(selectionId))throw new DraftRequestError(400,"invalid-input");
+  if(conditional&&mode!=="draft"&&mode!=="confirm")throw new DraftRequestError(400,"invalid-input");
   let formData: FormData;
   try {
     formData = await readFormDataBody(request, MAX_QR_REQUEST_BYTES);
@@ -71,7 +78,12 @@ export async function POST(
   }
   const verifiedFile = new File([fileBytes], file.name, { type: file.type });
 
+  if(conditional&&revision&&(mode==="draft"||mode==="confirm")){
+    const result=await saveQrForEditToken(token,verifiedFile,{revision,mode,selectionId});
+    return result?draftJson(result,200,result.revision):json({error:"ลิงก์แก้ไขไม่ถูกต้อง"},{status:404});
+  }
   const document = await saveQrForEditToken(token, verifiedFile);
   if (!document) return json({ error: "ลิงก์แก้ไขไม่ถูกต้อง" }, { status: 404 });
   return json({ document });
+  });
 }

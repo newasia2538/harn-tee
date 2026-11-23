@@ -8,6 +8,7 @@ import { ReceiptScanner } from "@/components/harn-tee/receipt-scanner";
 import type { FeeMode, ItemDraft, ParticipantDraft, ReceiptOcrItem } from "@/lib/harn-tee/types";
 import { formatBaht } from "@/lib/harn-tee/money";
 import { numberInputValue } from "@/lib/harn-tee/input";
+import type {NumericField,NumericInputs} from "@/lib/harn-tee/draft-state";
 
 export function ItemEditor({
   items,
@@ -17,6 +18,8 @@ export function ItemEditor({
   onAdd,
   onRemove,
   onImport,
+  numbers,
+  onNumericChange,
 }: {
   items: ItemDraft[];
   participants: ParticipantDraft[];
@@ -25,6 +28,8 @@ export function ItemEditor({
   onAdd: () => void;
   onRemove: (id: string) => void;
   onImport: (items: ReceiptOcrItem[]) => void;
+  numbers?:Pick<NumericInputs,"prices"|"itemVat"|"itemService">;
+  onNumericChange?:(field:NumericField,raw:string)=>void;
 }) {
   const [priceValues, setPriceValues] = useState<Record<string, string>>({});
 
@@ -69,9 +74,10 @@ export function ItemEditor({
                   <Input
                     aria-label={"ราคาของรายการที่ " + (index + 1)}
                     inputMode="decimal"
-                    value={priceValues[item.id] ?? (item.priceSatang ? formatBaht(item.priceSatang) : "")}
+                    value={numbers?.prices[item.id] ?? priceValues[item.id] ?? (item.priceSatang ? formatBaht(item.priceSatang) : "")}
                     onChange={(event) => {
                       const rawValue = event.target.value;
+                      if(onNumericChange){onNumericChange({kind:"price",itemId:item.id},rawValue);return;}
                       setPriceValues((current) => ({ ...current, [item.id]: rawValue }));
                       const amount = Number(event.target.value.replace(/,/g, ""));
                       onChange(item.id, {
@@ -79,6 +85,7 @@ export function ItemEditor({
                       });
                     }}
                     onBlur={() => {
+                      if(onNumericChange)return;
                       setPriceValues((current) => ({
                         ...current,
                         [item.id]: item.priceSatang ? formatBaht(item.priceSatang) : "",
@@ -147,9 +154,9 @@ export function ItemEditor({
                       <Input
                         aria-label={"VAT ของรายการที่ " + (index + 1)}
                         inputMode="decimal"
-                        value={numberInputValue(item.vatPercent)}
+                        value={numbers?.itemVat[item.id] ?? numberInputValue(item.vatPercent)}
                         placeholder="0"
-                        onChange={(event) => onChange(item.id, { vatPercent: Number(event.target.value) || 0 })}
+                        onChange={(event) => onNumericChange?onNumericChange({kind:"item-vat",itemId:item.id},event.target.value):onChange(item.id, { vatPercent: Number(event.target.value) || 0 })}
                         min={0}
                         max={100}
                         step="0.01"
@@ -164,9 +171,9 @@ export function ItemEditor({
                       <Input
                         aria-label={"Service charge ของรายการที่ " + (index + 1)}
                         inputMode="decimal"
-                        value={numberInputValue(item.serviceChargePercent)}
+                        value={numbers?.itemService[item.id] ?? numberInputValue(item.serviceChargePercent)}
                         placeholder="0"
-                        onChange={(event) => onChange(item.id, { serviceChargePercent: Number(event.target.value) || 0 })}
+                        onChange={(event) => onNumericChange?onNumericChange({kind:"item-service",itemId:item.id},event.target.value):onChange(item.id, { serviceChargePercent: Number(event.target.value) || 0 })}
                         min={0}
                         max={100}
                         step="0.01"

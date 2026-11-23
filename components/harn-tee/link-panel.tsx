@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CopyButton } from "./copy-button";
 
-export function LinkPanel({ shareUrl, editUrl }: { shareUrl: string; editUrl: string }) {
+export function LinkPanel({ shareUrl, editUrl,onStartNew }: { shareUrl: string; editUrl: string;onStartNew?:()=>void }) {
   return (
     <Card className="border-[#c9decd] bg-[#f6fbf4] shadow-[0_22px_60px_rgb(32_67_56/8%)]">
       <CardHeader className="space-y-1">
@@ -40,6 +40,7 @@ export function LinkPanel({ shareUrl, editUrl }: { shareUrl: string; editUrl: st
           <p className="mb-3 break-all text-xs text-[#8d8076]">{editUrl}</p>
           <CopyButton value={editUrl} label="คัดลอกลิงก์แก้ไข" />
         </div>
+        {onStartNew&&<Button type="button" variant="outline" onClick={onStartNew} className="w-full whitespace-normal">เริ่มทำรายการใหม่</Button>}
       </CardContent>
     </Card>
   );

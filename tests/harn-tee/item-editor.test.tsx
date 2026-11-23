@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ItemEditor } from "../../components/harn-tee/item-editor";
 import type { ItemDraft, ParticipantDraft, ReceiptOcrItem } from "../../lib/harn-tee/types";
 
@@ -23,6 +23,11 @@ const items: ItemDraft[] = [{
 afterEach(cleanup);
 
 describe("ItemEditor receipt scanner entry point", () => {
+  it("retains controlled unfinished numeric input after blur",()=>{
+    const change=vi.fn();render(<ItemEditor items={items} participants={participants} feeMode="item" onChange={vi.fn()} onAdd={vi.fn()} onRemove={vi.fn()} onImport={vi.fn()} numbers={{prices:{"item-1":"7."},itemVat:{"item-1":""},itemService:{}}} onNumericChange={change}/>);
+    const price=screen.getByLabelText("ราคาของรายการที่ 1") as HTMLInputElement;fireEvent.blur(price);expect(price.value).toBe("7.");
+    fireEvent.change(price,{target:{value:"7.5"}});expect(change).toHaveBeenCalledWith({kind:"price",itemId:"item-1"},"7.5");
+  });
   it("renders scan and manual actions without removing item fee controls", () => {
     const onImport = vi.fn<(items: ReceiptOcrItem[]) => void>();
 
