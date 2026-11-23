@@ -5,6 +5,7 @@ import {createOpaqueToken} from "./tokens";
 import {createDraftApi,DraftApiError,type DraftApi} from "./draft-api";
 import {openDraftStore,DraftStorageError,type DraftStore} from "./draft-store";
 import {createDraftSaveQueue,type DraftSaveQueue} from "./draft-save-queue";
+import {comparableForm,recoveredQrUpload,sameQr} from "./draft-ack";
 import {formFromDocument,hasMeaningfulDraft,makeBlankForm,sanitizeDraftForm,type Checkpoint,type CompletionCheckpoint,type DraftAck,type DraftForm,type QrSelection,type RemoteIdentity,type SaveState,type WorkingCheckpoint} from "./draft-state";
 
 export type SubmissionContext={form:DraftForm;remote:RemoteIdentity;qr:QrSelection;confirmationId:string;generation:string;localId:string;localVersion:number};
@@ -15,7 +16,7 @@ export type DraftSession=View & {
   ensureRemote():Promise<RemoteIdentity>;prepareSubmission():Promise<SubmissionContext>;
   rememberRemote(remote:RemoteIdentity):Promise<void>;completeSubmission(receipt:CompletionCheckpoint):Promise<void>;
   completePublishedUpdate(document:BillDocument,remote:RemoteIdentity):Promise<void>;
-  failSubmission():void;beginNew():Promise<void>;
+  failSubmission(error?:unknown):void;beginNew():Promise<void>;
 };
 type Options={initialDocument?:BillDocument;initialSnapshot?:DraftAck;editToken?:string;dependencies?:{store:DraftStore;api:DraftApi}};
 const blankView=():View=>({form:makeBlankForm(),qr:{kind:"none"},phase:"hydrating",recovery:null,completion:null,localSave:{status:"idle"},remoteSave:{status:"idle"}});
@@ -24,7 +25,7 @@ const errorState=(error:unknown):SaveState=>({status:error instanceof DraftStora
 
 function createSession(options:Options,emit:(view:View)=>void){
   let view=blankView(),alive=true,generation=crypto.randomUUID(),record:WorkingCheckpoint|undefined,exists=false,boundToken:string|undefined;
-  let tail:Promise<void>=Promise.resolve(),creation:Promise<RemoteIdentity>|undefined,queue:DraftSaveQueue|undefined;
+  let tail:Promise<void>=Promise.resolve(),creation:Promise<RemoteIdentity>|undefined,queue:DraftSaveQueue|undefined,serverSnapshot:DraftAck|undefined;
   const api=options.dependencies?.api??createDraftApi();
   const storePromise=options.dependencies?Promise.resolve(options.dependencies.store):openDraftStore();void storePromise.catch(()=>undefined);
   const update=(patch:Partial<View>)=>{if(alive){view={...view,...patch};emit(view);}};
@@ -55,7 +56,12 @@ function createSession(options:Options,emit:(view:View)=>void){
       guard(id);let remote=view.remote!;
       const qr=view.qr;
       if(qr.kind==="local"&&qr.selectionId!==remote.qrSelectionId){
-        const ack=await api.uploadQr(remote.editToken,remote.revision,qr.file,"draft",signal);guard(id);
+        const before=serverSnapshot;let ack:DraftAck;
+        try{ack=await api.uploadQr(remote.editToken,remote.revision,qr.file,"draft",signal,qr.selectionId);}catch(error){
+          guard(id);if(!(error instanceof DraftApiError&&error.status===0)||!before)throw error;
+          const latest=await api.load(remote.editToken,signal);guard(id);if(!recoveredQrUpload(before,latest,qr.selectionId))throw new DraftApiError(409,"revision-conflict");ack=latest;
+        }
+        guard(id);serverSnapshot=ack;
         remote={...remote,revision:ack.revision,qrSelectionId:qr.selectionId};update({remote});if(record)record={...record,remote};
       }
       let ack:DraftAck;
@@ -64,13 +70,13 @@ function createSession(options:Options,emit:(view:View)=>void){
         // A lost response can be acknowledged only if the exact safe form is present.
         if(error instanceof DraftApiError&&error.status===0){
           const latest=await api.load(remote.editToken,signal);guard(id);
-          if(latest.document.status!=="draft"||JSON.stringify(latest.form)!==JSON.stringify(form))throw new DraftApiError(409,"revision-conflict");
+          if(latest.document.status!=="draft"||!latest.form||comparableForm(latest.form)!==comparableForm(form)||!serverSnapshot||!sameQr(serverSnapshot,latest))throw new DraftApiError(409,"revision-conflict");
           ack=latest;
         }else throw error;
       }
-      guard(id);update({remote:{...remote,revision:ack.revision}});if(record)record={...record,remote:view.remote,serverSavedAt:Date.now()};
+      guard(id);serverSnapshot=ack;update({remote:{...remote,revision:ack.revision}});if(record)record={...record,remote:view.remote,serverSavedAt:Date.now()};
       await persist().catch(()=>undefined);
-    }});
+    }});return queue;
   }
   const enqueue=()=>{if(view.remote?.status==="draft")queue?.enqueue(sanitizeDraftForm(view.form));};
   function setForm(updater:(form:DraftForm)=>DraftForm){
@@ -91,7 +97,7 @@ function createSession(options:Options,emit:(view:View)=>void){
       const file=await (await storePromise).loadQr(saved.localId,saved.qr.selectionId);guard(id);
       if(file)qr={kind:"local",selectionId:saved.qr.selectionId,file};else update({localSave:{status:"error",code:"missing-qr"}});
     }
-    update({form:saved.form,qr,remote:saved.remote,recovery:null,phase:"hydrating"});
+    update({form:saved.form,qr,remote:saved.remote,recovery:null,phase:"hydrating",localSave:{status:"saved",savedAt:saved.savedAt}});
   }
   const identity=(ack:DraftAck,token:string,previous?:RemoteIdentity):RemoteIdentity=>{if(ack.document.status==="deleted")throw new DraftApiError(404,"not-found");return {...previous,id:ack.id,editToken:token,revision:ack.revision,status:ack.document.status};};
   async function restoreReceipt(saved:WorkingCheckpoint,ack:DraftAck){
@@ -106,6 +112,7 @@ function createSession(options:Options,emit:(view:View)=>void){
     if(saved.remote){
       try{
         const ack=await api.load(saved.remote.editToken);guard(id);
+        serverSnapshot=ack;
         if(await restoreReceipt(saved,ack))return;
         if(ack.revision!==saved.remote.revision){queue?.stop();update({phase:"editing",remoteSave:{status:"conflict",code:"revision-conflict"}});return;}
       }catch(error){guard(id);update({phase:"editing",remoteSave:errorState(error)});return;}
@@ -127,7 +134,7 @@ function createSession(options:Options,emit:(view:View)=>void){
         record=saved;exists=true;update({phase:"recovery",recovery:saved});return;
       }
     }
-    const form=ack?(ack.form??formFromDocument(ack.document)):options.initialDocument?formFromDocument(options.initialDocument):makeBlankForm();
+    serverSnapshot=ack;const form=ack?(ack.form??formFromDocument(ack.document)):options.initialDocument?formFromDocument(options.initialDocument):makeBlankForm();
     const remote=ack&&options.editToken?identity(ack,options.editToken,saved?.kind==="working"?saved.remote:undefined):undefined;
     if(saved?.kind==="working"){record=saved;exists=true;boundToken=saved.remote?.editToken;}else{record=newRecord(form,remote);exists=false;}
     update({form,remote,qr:{kind:form.draft.recipient?.qr?"server":"none"},phase:"editing"});setupQueue();
@@ -140,6 +147,7 @@ function createSession(options:Options,emit:(view:View)=>void){
       if(!record)throw new Error("not-ready");record={...record,creationKey:record.creationKey??createOpaqueToken()};
       await persist().catch(()=>undefined);guard(id);
       const ack=await api.create(record.creationKey!,sanitizeDraftForm(view.form));guard(id);
+      serverSnapshot=ack;
       const remote:RemoteIdentity={...identity(ack,ack.editToken),shareToken:ack.shareToken};
       update({remote});record={...record,remote};await persist().catch(()=>undefined);guard(id);setupQueue();enqueue();return remote;
     })().finally(()=>{if(id===generation)creation=undefined;});return creation;
@@ -163,12 +171,25 @@ function createSession(options:Options,emit:(view:View)=>void){
   }
   async function reset(){
     const previous=record?.localId??view.completion?.localId;generation=crypto.randomUUID();queue?.stop();creation=undefined;await tail.catch(()=>undefined);tail=Promise.resolve();
-    record=undefined;exists=false;boundToken=undefined;view=blankView();emit(view);
-    try{const store=await storePromise;const root=options.editToken?await store.read({kind:"new"}):undefined;const fresh=await store.startNew(options.editToken?root?.localId:previous);record=fresh;exists=true;update({form:fresh.form,phase:"editing",localSave:{status:"saved",savedAt:fresh.savedAt}});}catch(error){record=newRecord(makeBlankForm());update({form:record.form,phase:"editing",localSave:errorState(error)});}
+    record=undefined;exists=false;boundToken=undefined;serverSnapshot=undefined;view=blankView();emit(view);
+    try{
+      const store=await storePromise,root=options.editToken?await store.read({kind:"new"}):undefined;
+      if(root?.kind==="working"&&root.localId!==previous&&hasMeaningfulDraft(root.form)){
+        record=root;exists=true;update({phase:"recovery",recovery:root});return;
+      }
+      const fresh=await store.startNew(options.editToken?root?.localId:previous);record=fresh;exists=true;update({form:fresh.form,phase:"editing",localSave:{status:"saved",savedAt:fresh.savedAt}});
+    }catch(error){record=newRecord(makeBlankForm());update({form:record.form,phase:"editing",localSave:errorState(error)});}
   }
   async function loadLatest(){
+    if(view.localSave.status==="conflict"||!view.remote&&!options.editToken){
+      const id=generation;queue?.stop();await tail.catch(()=>undefined);
+      const saved=await (await storePromise).read(options.editToken?{kind:"edit",editToken:options.editToken}:{kind:"new"});guard(id);
+      if(saved?.kind==="complete"){update({phase:"complete",completion:saved,recovery:null,remote:undefined,localSave:{status:"saved",savedAt:saved.savedAt}});return;}
+      if(saved?.kind==="working"){update({recovery:saved});await resume();return;}
+      throw new DraftStorageError("storage-conflict");
+    }
     if(!view.remote&&!options.editToken)return;const id=generation,token=view.remote?.editToken??options.editToken!;queue?.stop();
-    const ack=await api.load(token);guard(id);const form=ack.form??formFromDocument(ack.document);
+    const ack=await api.load(token);guard(id);serverSnapshot=ack;const form=ack.form??formFromDocument(ack.document);
     update({form,remote:identity(ack,token,view.remote),qr:{kind:ack.document.recipient.qr?"server":"none"},phase:"editing",recovery:null,remoteSave:{status:"saved",savedAt:Date.now()}});
     record={...(record??newRecord(form,view.remote)),formSequence:0,pendingConfirmation:undefined};await persist().catch(()=>undefined);setupQueue();
   }
@@ -177,11 +198,17 @@ function createSession(options:Options,emit:(view:View)=>void){
     record={...record!,formSequence:0,pendingConfirmation:undefined};await persist().catch(()=>undefined);
   }
   const flush=()=>{if(view.phase==="editing"){void tail.catch(()=>undefined);void queue?.flush().catch(()=>undefined);}};
-  const online=()=>queue?.retry();
+  async function retryRemote(){
+    if(queue){queue.retry();return;}
+    if(view.remote?.status!=="draft"||view.remoteSave.status!=="error")return;
+    const id=generation,remote=view.remote;
+    try{const ack=await api.load(remote.editToken);guard(id);if(ack.revision!==remote.revision)throw new DraftApiError(409,"revision-conflict");serverSnapshot=ack;const freshQueue=setupQueue();enqueue();freshQueue?.retry();}catch(error){if(alive&&id===generation)update({remoteSave:errorState(error)});}
+  }
+  const online=()=>{void retryRemote();};
   return {hydrate,dispose(){alive=false;queue?.stop();if(!options.dependencies)void storePromise.then(store=>store.close()).catch(()=>undefined);},
     setForm,selectQr,resume,startFresh:reset,beginNew:reset,ensureRemote,prepareSubmission,rememberRemote,completeSubmission,completePublishedUpdate,
-    failSubmission(){if(view.phase==="submitting"){update({phase:"editing"});setupQueue();}},
-    retrySave(){void persist().catch(()=>undefined);queue?.retry();},loadLatest,flush,online};
+    failSubmission(error?:unknown){if(error instanceof DraftApiError&&error.status===409){queue?.stop();queue=undefined;update({phase:"editing",remoteSave:errorState(error)});}else if(view.phase==="submitting"){update({phase:"editing"});setupQueue();}},
+    retrySave(){void persist().catch(()=>undefined);void retryRemote();},loadLatest,flush,online};
 }
 
 export function useDraftSession(options:Options={}):DraftSession{
@@ -196,5 +223,5 @@ export function useDraftSession(options:Options={}):DraftSession{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.editToken]);
   const c=()=>{if(!controller.current)throw new Error("not-ready");return controller.current;};
-  return {...view,setForm:u=>c().setForm(u),selectQr:f=>c().selectQr(f),resume:()=>c().resume(),startFresh:()=>c().startFresh(),beginNew:()=>c().beginNew(),retrySave:()=>c().retrySave(),loadLatest:()=>c().loadLatest(),ensureRemote:()=>c().ensureRemote(),prepareSubmission:()=>c().prepareSubmission(),rememberRemote:r=>c().rememberRemote(r),completeSubmission:r=>c().completeSubmission(r),completePublishedUpdate:(d,r)=>c().completePublishedUpdate(d,r),failSubmission:()=>c().failSubmission()};
+  return {...view,setForm:u=>c().setForm(u),selectQr:f=>c().selectQr(f),resume:()=>c().resume(),startFresh:()=>c().startFresh(),beginNew:()=>c().beginNew(),retrySave:()=>c().retrySave(),loadLatest:()=>c().loadLatest(),ensureRemote:()=>c().ensureRemote(),prepareSubmission:()=>c().prepareSubmission(),rememberRemote:r=>c().rememberRemote(r),completeSubmission:r=>c().completeSubmission(r),completePublishedUpdate:(d,r)=>c().completePublishedUpdate(d,r),failSubmission:e=>c().failSubmission(e)};
 }

@@ -2,6 +2,7 @@ import {DraftApiError,type DraftApi} from "./draft-api";
 import {DraftStorageError} from "./draft-store";
 import {validateFormForPublication,type RemoteIdentity} from "./draft-state";
 import type {SubmissionContext} from "./use-draft-session";
+import {recoveredQrUpload} from "./draft-ack";
 export class RecoveryCopyRequiredError extends Error{
   readonly code="recovery-copy-required";
   constructor(public remote:RemoteIdentity){super("recovery-copy-required");}
@@ -22,7 +23,11 @@ export async function confirmDraftPublication(context:SubmissionContext,io:{api:
     }
   }
   if(context.qr.kind==="local"&&context.qr.selectionId!==remote.qrSelectionId){
-    const ack=await api.uploadQr(remote.editToken,remote.revision,context.qr.file,remote.status==="draft"?"draft":"confirm");
+    let ack;
+    try{ack=await api.uploadQr(remote.editToken,remote.revision,context.qr.file,remote.status==="draft"?"draft":"confirm",undefined,context.qr.selectionId);}catch(error){
+      if(!(error instanceof DraftApiError&&error.status===0))throw error;
+      const recovered=await api.load(remote.editToken);if(!recoveredQrUpload(latest,recovered,context.qr.selectionId))throw new DraftApiError(409,"revision-conflict");ack=recovered;
+    }
     remote={...remote,revision:ack.revision,qrSelectionId:context.qr.selectionId};await remember();
   }
   async function issue(){

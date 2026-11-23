@@ -46,6 +46,8 @@ export async function POST(
   }
   const mode=request.headers.get("X-Harn-Tee-Save-Mode"),conditional=request.headers.has("If-Match")||mode!==null;
   const revision=conditional?requiredRevision(request):undefined;
+  const selectionId=request.headers.get("X-Harn-Tee-Qr-Selection")??undefined;
+  if(selectionId&&!/^[A-Za-z0-9_-]{1,80}$/.test(selectionId))throw new DraftRequestError(400,"invalid-input");
   if(conditional&&mode!=="draft"&&mode!=="confirm")throw new DraftRequestError(400,"invalid-input");
   let formData: FormData;
   try {
@@ -77,7 +79,7 @@ export async function POST(
   const verifiedFile = new File([fileBytes], file.name, { type: file.type });
 
   if(conditional&&revision&&(mode==="draft"||mode==="confirm")){
-    const result=await saveQrForEditToken(token,verifiedFile,{revision,mode});
+    const result=await saveQrForEditToken(token,verifiedFile,{revision,mode,selectionId});
     return result?draftJson(result,200,result.revision):json({error:"ลิงก์แก้ไขไม่ถูกต้อง"},{status:404});
   }
   const document = await saveQrForEditToken(token, verifiedFile);

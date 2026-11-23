@@ -5,8 +5,40 @@ import {useDraftSession} from "../../lib/harn-tee/use-draft-session";
 import {checkpoint,sessionFixtures} from "../helpers/draft-session-fixtures";
 import {setNumericInput} from "../../lib/harn-tee/draft-state";
 import {DraftApiError} from "../../lib/harn-tee/draft-api";
+import {DraftStorageError} from "../../lib/harn-tee/draft-store";
 afterEach(cleanup);
 describe("draft recovery session",()=>{
+  it("reconciles a committed QR upload when its response is lost",async()=>{
+    const fx=sessionFixtures(),original=vi.mocked(fx.api.uploadQr).getMockImplementation()!;
+    vi.mocked(fx.api.uploadQr).mockImplementation(async(...args)=>{const ack=await original(...args);fx.setAck({...ack,qrSelectionId:args[5]});throw new DraftApiError(0,"network");});
+    const {result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("editing"));await act(()=>result.current.ensureRemote());await act(()=>result.current.selectQr(new File(["qr"],"qr.png",{type:"image/png"})));
+    await act(()=>result.current.prepareSubmission());expect(fx.api.uploadQr).toHaveBeenCalledOnce();expect(result.current.remote?.qrSelectionId).toBe(result.current.qr.kind==="local"?result.current.qr.selectionId:"");
+  });
+  it("reconciles a lost text-save response using equivalent QR metadata",async()=>{
+    const fx=sessionFixtures(),original=vi.mocked(fx.api.save).getMockImplementation()!;
+    vi.mocked(fx.api.save).mockImplementationOnce(async(...args)=>{const qr=fx.ack.document.recipient.qr;const ack=structuredClone(await original(...args));ack.document.recipient.qr=qr;ack.form!.draft.recipient!.qr=qr;fx.setAck(ack);throw new DraftApiError(0,"network");});
+    const {result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("editing"));await act(()=>result.current.ensureRemote());
+    await act(()=>result.current.selectQr(new File(["qr"],"qr.png",{type:"image/png"})));
+    await act(()=>result.current.prepareSubmission());expect(result.current.remoteSave.status).toBe("saved");
+  });
+  it("preserves an unrelated unfinished home draft when starting from an edit route",async()=>{
+    const fx=sessionFixtures();fx.setAck({...fx.ack,document:{...fx.ack.document,status:"published"},form:undefined});
+    vi.mocked(fx.store.read).mockImplementation(async context=>context.kind==="edit"?null:checkpoint());
+    const {result}=renderHook(()=>useDraftSession({editToken:"edit",initialSnapshot:fx.ack,dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("editing"));
+    await act(()=>result.current.beginNew());expect(fx.store.startNew).not.toHaveBeenCalled();expect(result.current.recovery?.localId).toBe("local");
+  });
+  it("loads the authoritative local version after a conflict without a remote link",async()=>{
+    const saved=checkpoint(),fx=sessionFixtures(saved);const {result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("recovery"));await act(()=>result.current.resume());
+    const peer={...saved,localVersion:9,form:{...saved.form,draft:{...saved.form.draft,title:"peer"}}};fx.setStored(peer);
+    vi.mocked(fx.store.writeWorking).mockRejectedValueOnce(new DraftStorageError("storage-conflict"));act(()=>result.current.setForm(f=>({...f,draft:{...f.draft,title:"mine"}})));await waitFor(()=>expect(result.current.localSave.status).toBe("conflict"));
+    await act(()=>result.current.loadLatest());expect(result.current.form.draft.title).toBe("peer");act(()=>result.current.setForm(f=>({...f,draft:{...f.draft,title:"after reload"}})));await waitFor(()=>expect(result.current.localSave.status).toBe("saved"));
+  });
+  it("rechecks the revision and resumes autosave after recovering offline",async()=>{
+    const saved=checkpoint(),fx=sessionFixtures(saved);saved.remote={id:"b1",editToken:"edit",revision:fx.ack.revision,status:"draft"};vi.mocked(fx.api.load).mockRejectedValueOnce(new DraftApiError(0,"network"));
+    const {result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("recovery"));await act(()=>result.current.resume());
+    act(()=>result.current.setForm(f=>({...f,draft:{...f.draft,title:"offline edit"}})));act(()=>result.current.retrySave());
+    await waitFor(()=>expect(result.current.remoteSave.status).toBe("saved"),{timeout:2000});expect(vi.mocked(fx.api.save).mock.calls.at(-1)?.[2].draft.title).toBe("offline edit");
+  });
   it("waits for checkpoint loading and user continuation before writing anything",async()=>{
     const fx=sessionFixtures(),saved=checkpoint();saved.form=setNumericInput(saved.form,{kind:"price",itemId:"i1"},"7.") as typeof saved.form;saved.form.step=1;
     let resolve!:(value:typeof saved)=>void;vi.mocked(fx.store.read).mockReturnValue(new Promise(r=>{resolve=r;}));

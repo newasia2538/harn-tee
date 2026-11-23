@@ -121,10 +121,10 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
     }],
   }));
 
-  const removeItem = (id: string) => setDraft((current) => ({
-    ...current,
-    items: current.items.filter((item) => item.id !== id).map((item, index) => ({ ...item, order: index })),
-  }));
+  const removeItem = (id: string) => {setSaved(false);setRecoveryCopy(null);session.setForm(form=>{
+    const without=(map:Record<string,string>)=>Object.fromEntries(Object.entries(map).filter(([key])=>key!==id));
+    return {...form,draft:{...form.draft,items:form.draft.items.filter(item=>item.id!==id).map((item,order)=>({...item,order}))},numbers:{...form.numbers,prices:without(form.numbers.prices),itemVat:without(form.numbers.itemVat),itemService:without(form.numbers.itemService)}};
+  });};
 
   const updateItem = (id: string, patch: Partial<BillDraft["items"][number]>) => setDraft((current) => ({
     ...current,
@@ -186,7 +186,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
         const remote=caught.remote;setRecoveryCopy({signature:generation+"|"+remote.editToken+"|"+(remote.shareToken??""),shareUrl:remote.shareToken?window.location.origin+"/share/"+remote.shareToken:undefined,editUrl:window.location.origin+"/edit/"+remote.editToken,copied:false,acknowledged:false});
         setError("บันทึกดราฟต์ในเครื่องไม่ได้ กรุณาคัดลอกลิงก์กู้คืนและยืนยันว่าเก็บไว้แล้ว ก่อนลองยืนยันบิลอีกครั้ง");
       }else report(caught);
-      session.failSubmission();
+      session.failSubmission(caught);
     } finally {
       setSaving(false);
     }
@@ -197,10 +197,11 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
     const nextPaid = !paidState[participantId];
     const response = await fetch("/api/bills/" + draftEditToken + "/status", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json","If-Match":`"${session.remote!.revision}"` },
       body: JSON.stringify({ participantId, paid: nextPaid }),
     });
-    if (response.ok){setPaidState((current) => ({ ...current, [participantId]: nextPaid }));const ack=await api.load(draftEditToken);await session.rememberRemote({...session.remote!,revision:ack.revision}).catch(()=>undefined);}
+    if(response.status===409){const conflict=new DraftApiError(409,"revision-conflict");session.failSubmission(conflict);report(conflict);return;}
+    if(response.ok){const body=await response.json() as {revision:string};setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
   };
 
   if(session.phase==="hydrating")return <main className="mx-auto max-w-2xl p-6 text-[#243b53]"><BrandMark/><p role="status" className="mt-8">กำลังโหลดดราฟต์…</p>{session.remoteSave.status==="error"&&<Button onClick={()=>void session.loadLatest().catch(report)}>ลองโหลดอีกครั้ง</Button>}{error&&<p role="alert">{error}</p>}</main>;

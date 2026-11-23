@@ -10,6 +10,12 @@ vi.mock("next/image",()=>({default:({fill,priority,...props}:Record<string,unkno
 /* eslint-enable @typescript-eslint/no-unused-vars, @next/next/no-img-element, jsx-a11y/alt-text */
 vi.mock("next/link",()=>({default:({children,...props}:React.AnchorHTMLAttributes<HTMLAnchorElement>)=><a {...props}>{children}</a>}));
 afterEach(cleanup);
+it("removes numeric inputs together with a deleted item before publishing",async()=>{
+ const saved=checkpoint();saved.form.step=1;saved.form.draft.items.push({...saved.form.draft.items[0],id:"i2",name:"ลบทิ้ง",order:1});saved.form.numbers.prices.i2="50";saved.form.numbers.itemVat.i2="7";saved.form.numbers.itemService.i2="10";
+ const fx=sessionFixtures(saved);render(<HarnTeeApp sessionDependencies={fx}/>);fireEvent.click(await screen.findByRole("button",{name:"ทำรายการต่อ"}));fireEvent.click(await screen.findByRole("button",{name:"ลบ ลบทิ้ง"}));
+ fireEvent.click(screen.getByRole("button",{name:/ตรวจสอบยอด/}));fireEvent.click(await screen.findByRole("button",{name:"ยืนยันและสร้างลิงก์แชร์"}));await screen.findByText("แชร์ให้เพื่อนได้เลย");
+ const form=vi.mocked(fx.api.publish).mock.calls[0][2];expect(form.numbers.prices).not.toHaveProperty("i2");expect(form.numbers.itemVat).not.toHaveProperty("i2");expect(form.numbers.itemService).not.toHaveProperty("i2");
+});
 it("resumes step, raw input and payment data after remount",async()=>{
  const saved=checkpoint();saved.form.step=1;saved.form.numbers.prices.i1="7.";const fx=sessionFixtures(saved);
  render(<HarnTeeApp sessionDependencies={fx}/>);
