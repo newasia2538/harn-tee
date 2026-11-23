@@ -49,7 +49,8 @@ export function makeBlankForm():DraftForm {
   return {draft:{title:"",feeMode:"bill",calculationMode:"vat-after-service",participants:[{id:person,name:"",order:0}],items:[{id:crypto.randomUUID(),name:"",priceSatang:0,payerIds:[person],order:0}],vatPercent:0,serviceChargePercent:0,recipient:{name:"",bank:null,promptPay:null,qr:null,visible:true}},step:0,numbers:emptyNumbers()};
 }
 export function formFromDocument(document:BillDocument):DraftForm {
-  return {draft:{title:document.title,feeMode:document.feeMode??"bill",calculationMode:document.calculationMode??"vat-after-service",participants:document.participants.map(({id,name,order})=>({id,name,order})),items:document.items,vatPercent:document.vatPercent,serviceChargePercent:document.serviceChargePercent,recipient:document.recipient},step:0,numbers:emptyNumbers()};
+  const numbers=emptyNumbers();numbers.vat=document.vatPercent?String(document.vatPercent):"";numbers.service=document.serviceChargePercent?String(document.serviceChargePercent):"";
+  return {draft:{title:document.title,feeMode:document.feeMode??"bill",calculationMode:document.calculationMode??"vat-after-service",participants:document.participants.map(({id,name,order})=>({id,name,order})),items:document.items,vatPercent:document.vatPercent,serviceChargePercent:document.serviceChargePercent,recipient:document.recipient},step:0,numbers};
 }
 export function parseNumericInput(raw:string,kind:"price"|"percent") {
   const text=raw.trim();

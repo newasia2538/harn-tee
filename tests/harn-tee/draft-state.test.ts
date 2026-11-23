@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { changePromptPayType, makeBlankForm, parseNumericInput, parseStoredCheckpoint, sanitizeDraftForm, setNumericInput, validateFormForPublication } from "../../lib/harn-tee/draft-state";
+import { changePromptPayType, formFromDocument, makeBlankForm, parseNumericInput, parseStoredCheckpoint, sanitizeDraftForm, setNumericInput, validateFormForPublication } from "../../lib/harn-tee/draft-state";
+import {buildBillDocument} from "../../db/document";
 
 function fixture() {
   const form = makeBlankForm();
@@ -10,6 +11,10 @@ function fixture() {
 }
 
 describe("draft persistence contracts", () => {
+  it("initializes controlled fee values from existing bill amounts",()=>{
+    const form=fixture();form.draft.vatPercent=7;form.draft.serviceChargePercent=10;
+    expect(formFromDocument(buildBillDocument(form.draft)).numbers).toMatchObject({vat:"7",service:"10"});
+  });
   it("removes national ID without changing the active form or other payment settings", () => {
     const live = fixture(); const safe = sanitizeDraftForm(live);
     expect(safe.draft.recipient?.promptPay).toEqual({type:"national-id",value:""});

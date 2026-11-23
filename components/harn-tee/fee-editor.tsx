@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CalculationMode, FeeMode } from "@/lib/harn-tee/types";
 import { numberInputValue } from "@/lib/harn-tee/input";
+import type {NumericField,NumericInputs} from "@/lib/harn-tee/draft-state";
 
 export function FeeEditor({
   vatPercent,
@@ -12,6 +13,8 @@ export function FeeEditor({
   onModeChange,
   onCalculationModeChange,
   onChange,
+  numbers,
+  onNumericChange,
 }: {
   vatPercent: number;
   serviceChargePercent: number;
@@ -20,6 +23,8 @@ export function FeeEditor({
   onModeChange: (mode: FeeMode) => void;
   onCalculationModeChange: (mode: CalculationMode) => void;
   onChange: (key: "vatPercent" | "serviceChargePercent", value: number) => void;
+  numbers?:Pick<NumericInputs,"vat"|"service">;
+  onNumericChange?:(field:NumericField,raw:string)=>void;
 }) {
   return (
     <Card className="border-[#dfe8df] bg-white/85 shadow-[0_22px_60px_rgb(32_67_56/7%)]">
@@ -83,8 +88,9 @@ export function FeeEditor({
           <div className="relative">
             <Input
               inputMode="decimal"
-              value={numberInputValue(vatPercent)}
-              onChange={(event) => onChange("vatPercent", Number(event.target.value) || 0)}
+              aria-label="VAT"
+              value={numbers?.vat ?? numberInputValue(vatPercent)}
+              onChange={(event) => onNumericChange?onNumericChange({kind:"vat"},event.target.value):onChange("vatPercent", Number(event.target.value) || 0)}
               placeholder="0"
               className="h-11 rounded-xl border-[#dfe8df] bg-[#fbfdf9] pr-10"
               min={0}
@@ -99,9 +105,10 @@ export function FeeEditor({
           <div className="relative">
             <Input
               inputMode="decimal"
-              value={numberInputValue(serviceChargePercent)}
+              aria-label="Service charge"
+              value={numbers?.service ?? numberInputValue(serviceChargePercent)}
               onChange={(event) =>
-                onChange("serviceChargePercent", Number(event.target.value) || 0)
+                onNumericChange?onNumericChange({kind:"service"},event.target.value):onChange("serviceChargePercent", Number(event.target.value) || 0)
               }
               placeholder="0"
               className="h-11 rounded-xl border-[#dfe8df] bg-[#fbfdf9] pr-10"
