@@ -11,6 +11,10 @@ function fixture() {
 }
 
 describe("draft persistence contracts", () => {
+  it("validates restored form metadata without treating it as submitted bill data",()=>{
+    const form=makeBlankForm();form.draft.participants[0].name="เอ";form.draft.items[0].name="ข้าว";form.draft.items[0].priceSatang=10000;form.draft.recipient!.promptPay={type:"phone",value:"0812345678"};
+    expect(validateFormForPublication(sanitizeDraftForm(form)).valid).toBe(true);
+  });
   it("initializes controlled fee values from existing bill amounts",()=>{
     const form=fixture();form.draft.vatPercent=7;form.draft.serviceChargePercent=10;
     expect(formFromDocument(buildBillDocument(form.draft)).numbers).toMatchObject({vat:"7",service:"10"});

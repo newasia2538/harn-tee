@@ -4,26 +4,24 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { HarnTeeApp } from "../../harn-tee-client";
-import type { BillDocument } from "@/lib/harn-tee/types";
+import type {DraftAck} from "@/lib/harn-tee/draft-state";
+import {createDraftApi} from "@/lib/harn-tee/draft-api";
 
 export default function EditPage() {
   const params = useParams<{ token: string }>();
-  const [document, setDocument] = useState<BillDocument | null>(null);
-  const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState<{token:string;ack:DraftAck} | null>(null);
+  const [failure, setFailure] = useState<{token:string;message:string}|null>(null);
+  const snapshot=loaded?.token===params.token?loaded.ack:null,error=failure?.token===params.token?failure.message:"";
 
   useEffect(() => {
-    void fetch("/api/bills/" + params.token, { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json() as { document?: BillDocument; error?: string };
-        if (!response.ok || !body.document) throw new Error(body.error ?? "ไม่พบข้อมูลบิลนี้");
-        setDocument(body.document);
-      })
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "โหลดบิลไม่สำเร็จ"));
+    const controller=new AbortController();
+    void createDraftApi().load(params.token,controller.signal).then(ack=>{if(!controller.signal.aborted)setLoaded({token:params.token,ack});}).catch(()=>{if(!controller.signal.aborted)setFailure({token:params.token,message:"ไม่พบข้อมูลบิลนี้ หรือโหลดบิลไม่สำเร็จ"});});
+    return ()=>controller.abort();
   }, [params.token]);
 
   if (error) {
     return <main className="grid min-h-screen place-items-center p-6 text-center text-[#315f50]"><div><h1 className="font-display text-3xl">{error}</h1><Link className="mt-5 inline-block text-sm font-bold text-[#d36346]" href="/">สร้างบิลใหม่</Link></div></main>;
   }
-  if (!document) return <main className="grid min-h-screen place-items-center p-6 text-[#315f50]">กำลังโหลดบิล...</main>;
-  return <HarnTeeApp initialDocument={document} editToken={params.token} />;
+  if (!snapshot) return <main className="grid min-h-screen place-items-center p-6 text-[#315f50]">กำลังโหลดบิล...</main>;
+  return <HarnTeeApp key={params.token} initialSnapshot={snapshot} editToken={params.token} />;
 }

@@ -104,7 +104,7 @@ export function validateFormForPublication(form:DraftForm,hasPendingQr=false):Va
   if(invalidNumberFields(form).length)errors.push("ตรวจสอบราคาและเปอร์เซ็นต์ที่ยังกรอกไม่ครบหรือไม่ถูกต้อง");
   const normalized=normalizeFormNumbers(form), bill=validateBillDraft(normalized.draft),payment=validateRecipient(normalized.draft.recipient,hasPendingQr);
   if(!bill.valid)errors.push(...bill.errors);if(!payment.valid)errors.push(...payment.errors);
-  const parsed=formInputSchema.safeParse(normalized);
+  const parsed=formInputSchema.safeParse({draft:normalized.draft,step:normalized.step,numbers:normalized.numbers});
   if(!parsed.success)errors.push("ข้อมูลบิลไม่ถูกต้องหรือมีขนาดเกินกำหนด");
   else {
     const result=calculateBill(normalized.draft);

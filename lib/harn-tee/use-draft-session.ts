@@ -164,7 +164,7 @@ function createSession(options:Options,emit:(view:View)=>void){
   async function reset(){
     const previous=record?.localId??view.completion?.localId;generation=crypto.randomUUID();queue?.stop();creation=undefined;await tail.catch(()=>undefined);tail=Promise.resolve();
     record=undefined;exists=false;boundToken=undefined;view=blankView();emit(view);
-    try{const fresh=await (await storePromise).startNew(previous);record=fresh;exists=true;update({form:fresh.form,phase:"editing",localSave:{status:"saved",savedAt:fresh.savedAt}});}catch(error){record=newRecord(makeBlankForm());update({form:record.form,phase:"editing",localSave:errorState(error)});}
+    try{const store=await storePromise;const root=options.editToken?await store.read({kind:"new"}):undefined;const fresh=await store.startNew(options.editToken?root?.localId:previous);record=fresh;exists=true;update({form:fresh.form,phase:"editing",localSave:{status:"saved",savedAt:fresh.savedAt}});}catch(error){record=newRecord(makeBlankForm());update({form:record.form,phase:"editing",localSave:errorState(error)});}
   }
   async function loadLatest(){
     if(!view.remote&&!options.editToken)return;const id=generation,token=view.remote?.editToken??options.editToken!;queue?.stop();
@@ -173,7 +173,7 @@ function createSession(options:Options,emit:(view:View)=>void){
     record={...(record??newRecord(form,view.remote)),formSequence:0,pendingConfirmation:undefined};await persist().catch(()=>undefined);setupQueue();
   }
   async function completePublishedUpdate(document:BillDocument,remote:RemoteIdentity){
-    queue?.stop();update({form:formFromDocument(document),remote,qr:{kind:document.recipient.qr?"server":"none"},phase:"editing"});
+    queue?.stop();update({form:{...formFromDocument(document),step:view.form.step},remote,qr:{kind:document.recipient.qr?"server":"none"},phase:"editing"});
     record={...record!,formSequence:0,pendingConfirmation:undefined};await persist().catch(()=>undefined);
   }
   const flush=()=>{if(view.phase==="editing"){void tail.catch(()=>undefined);void queue?.flush().catch(()=>undefined);}};
