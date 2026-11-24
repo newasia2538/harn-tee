@@ -295,7 +295,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
 
             {step === 1 ? (
               <>
-                <LiveBillTotals form={session.form}/>
+                <LiveBillTotals form={session.form} onNext={nextStep} disabled={saving||session.phase==="submitting"}/>
                 <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} onImport={importReceiptItems} numbers={session.form.numbers} onNumericChange={onNumericChange}/>
                 <FeeEditor
                   vatPercent={draft.vatPercent}
