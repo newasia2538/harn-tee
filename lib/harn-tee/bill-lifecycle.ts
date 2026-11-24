@@ -1,5 +1,6 @@
 import {calculateBill} from "./money";
-import {sanitizeDraftForm,type SafeDraftForm} from "./draft-state";
+import {formFromDocument,sanitizeDraftForm,type SafeDraftForm} from "./draft-state";
+import {selectLiveTotals} from "./live-totals";
 import type {BillDocument} from "./types";
 
 export type BillPaymentStatus="draft"|"unpaid"|"partial"|"paid";
@@ -56,5 +57,6 @@ export function sameDraftActivity(before:SafeDraftForm,after:SafeDraftForm):bool
 }
 
 export function summarizeBill(document:BillDocument,id:string,revision:string,lifecycle:BillLifecycle):BillSummary{
-  return {id,title:document.title,totalSatang:calculateBill(document).grossTotalSatang,lifecycle:{...lifecycle,...paymentProgress(document)},revision};
+  const calculation=document.status==="draft"?selectLiveTotals(formFromDocument(document)).calculation:calculateBill(document);
+  return {id,title:document.title,totalSatang:calculation.grossTotalSatang,lifecycle:{...lifecycle,...paymentProgress(document)},revision};
 }

@@ -17,7 +17,8 @@ import { emptyNumbers, normalizeFormNumbers, sanitizeDraftForm, validateFormForP
 
 import {BILL_COLUMNS,rowLifecycle,type StoredBillRow} from "./bill-retention-store";
 import {BillUnavailableError,lookupBillAccess} from "./bill-access";
-import {advanceLifecycle,paymentProgress,sameDraftActivity,samePublishedContent,type LifecycleSnapshot,type DeleteResult} from "../lib/harn-tee/bill-lifecycle";
+import {advanceLifecycle,paymentProgress,sameDraftActivity,samePublishedContent,summarizeBill,type LifecycleSnapshot,type DeleteResult} from "../lib/harn-tee/bill-lifecycle";
+import type {HistorySyncProof,HistorySyncItem,HistorySyncResponse} from "../lib/harn-tee/history-state";
 import {drainBillQrCleanup,revokeBillSnapshot} from "./bill-deletion";
 import {drainQueuedQrAssets,qrAttachmentStatements,queueQrCleanup,registerQrAsset,settleQrAsset} from "./bill-qr-assets";
 
@@ -138,7 +139,7 @@ export async function createBillRecord(
     )
     .run();
 
-  return { id, shareToken, editToken, document };
+  return { id, shareToken, editToken, document,lifecycle:{...lifecycle,...paymentProgress(document)},serverNow:Date.now(),revision:await revisionOf(JSON.stringify(document),await hashToken(shareToken),0) };
 }
 
 export async function readBillByToken(
@@ -182,13 +183,17 @@ export async function setParticipantPaid(
   paid: boolean,
   revision?:string,
 ):Promise<BillDocument|DraftAck|null> {
+  const result=await setParticipantPaidReceipt(rawToken,participantId,paid,revision);
+  return revision?result:result?.document??null;
+}
+export async function setParticipantPaidReceipt(rawToken:string,participantId:string,paid:boolean,revision?:string):Promise<DraftAck|null>{
   let found=await findByToken(revision?"edit":"share",rawToken);
   if(!found||found.document.status!=="published")found=await findByToken("edit",rawToken);
   if(!found||found.document.status!=="published")return null;
   if(revision&&await revisionOf(found.row.payload_json,found.row.share_token_digest,found.row.retention_version??0)!==revision)throw new BillConflictError();
   const participant=found.document.participants.find(person=>person.id===participantId);
   if(!participant)throw new BillValidationError(["ไม่พบผู้ร่วมจ่ายในบิลนี้"]);
-  if(participant.paid===paid)return revision?acknowledgement(found):found.document;
+  if(participant.paid===paid)return acknowledgement(found);
   const document: BillDocument = {
     ...found.document,
     participants: found.document.participants.map((person) =>
@@ -202,7 +207,28 @@ export async function setParticipantPaid(
   const envelope={...document,...(found.envelope.lastConfirmationId?{lastConfirmationId:found.envelope.lastConfirmationId}:{})};
   const committed=await conditionalWrite(found,envelope);
   if(!committed)throw new BillConflictError();
-  return revision?acknowledgement(committed):committed.document;
+  return acknowledgement(committed);
+}
+
+export async function syncBillHistory(entries:HistorySyncProof[]):Promise<HistorySyncResponse>{
+  const cache=new Map<string,Promise<{found:FoundBill;ack:DraftAck}|null>>();
+  const resolve=async(proof:HistorySyncProof):Promise<HistorySyncItem>=>{
+    try{
+      let pending=cache.get(proof.editToken);
+      if(!pending){pending=(async()=>{const found=await findByToken("edit",proof.editToken);return found?{found,ack:await acknowledgement(found)}:null;})();cache.set(proof.editToken,pending);}
+      const loaded=await pending;if(!loaded)return {localId:proof.localId,kind:"missing"};
+      const {found,ack}=loaded;
+      if(ack.lifecycle.expiresAt<=Date.now())return {localId:proof.localId,kind:"gone",state:"deleting"};
+      const shareUsable=found.document.status==="published"&&Boolean(proof.shareToken&&await tokensMatch(proof.shareToken,found.row.share_token_digest));
+      return {localId:proof.localId,kind:"active",summary:summarizeBill(found.document,ack.id,ack.revision,ack.lifecycle),shareUsable};
+    }catch(error){
+      if(error instanceof BillUnavailableError)return {localId:proof.localId,kind:"gone",state:error.code==="bill-deleted"?"deleted":"deleting"};
+      throw error;
+    }
+  };
+  const items:HistorySyncItem[]=[];
+  for(let index=0;index<entries.length;index+=4)items.push(...await Promise.all(entries.slice(index,index+4).map(resolve)));
+  return {serverNow:Date.now(),items};
 }
 
 export async function deleteBillByEditToken(rawToken:string,revision:string):Promise<DeleteResult|null>{

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { formInputSchema, type WriteResult } from "./draft-state";
 import { readJsonBody, InvalidJsonBodyError, RequestBodyTooLargeError } from "./request-body";
+import {BillUnavailableError} from "../../db/bill-access";
 
 export class DraftRequestError extends Error {constructor(public status:number,public code:string){super(code);}}
 const wireForm=formInputSchema.extend({paymentReentryRequired:z.boolean().optional()}).superRefine((form,ctx)=>{
@@ -24,6 +25,9 @@ export function requiredRevision(request:Request):string {
 export function draftJson(data:unknown,status=200,revision?:string){
   return Response.json(data,{status,headers:{"Cache-Control":"no-store",...(revision?{ETag:`"${revision}"`}:{})}});
 }
+export function billUnavailableResponse(error:unknown):Response|null{
+  return error instanceof BillUnavailableError?draftJson({error:error.code==="bill-deleted"?"บิลนี้ได้ถูกลบออกจากระบบแล้ว":"บิลนี้อยู่ระหว่างการลบ",code:error.code},410):null;
+}
 export function draftResult<T>(result:WriteResult<T>){
   if(result.kind==="not-found")return draftJson({error:"ไม่พบข้อมูลบิลนี้"},404);
   if(result.kind==="conflict")return draftJson({error:"ข้อมูลบิลเปลี่ยนแล้ว กรุณาโหลดข้อมูลล่าสุด",code:result.code??"revision-conflict"},409);
@@ -32,6 +36,7 @@ export function draftResult<T>(result:WriteResult<T>){
 }
 export async function withDraftErrors(action:()=>Promise<Response>):Promise<Response>{
   try{return await action();}catch(error){
+    const unavailable=billUnavailableResponse(error);if(unavailable)return unavailable;
     if(error instanceof DraftRequestError)return draftJson({error:"ข้อมูลหรือเงื่อนไขการบันทึกไม่ถูกต้อง",code:error.code},error.status);
     if(error instanceof RequestBodyTooLargeError)return draftJson({error:"ข้อมูลมีขนาดใหญ่เกินไป"},413);
     if(error instanceof InvalidJsonBodyError)return draftJson({error:"รูปแบบข้อมูลไม่ถูกต้อง"},400);

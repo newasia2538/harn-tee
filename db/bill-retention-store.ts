@@ -4,15 +4,23 @@ import {NORMAL_LIFETIME_MS,PAID_LIFETIME_MS,paymentProgress,type BillLifecycle} 
 export type StoredBillRow={id:string;share_token_digest:string;edit_token_digest:string;payload_json:string;created_at:number;updated_at:number;last_activity_at:number|null;all_paid_at:number|null;expires_at:number|null;retention_version:number};
 export type RetentionBindings={DB:D1Database;BUCKET?:R2Bucket};
 export const BILL_COLUMNS="id, share_token_digest, edit_token_digest, payload_json, created_at, updated_at, last_activity_at, all_paid_at, expires_at, retention_version";
+const rolloutCache=new WeakMap<D1Database,Promise<number>>();
 
 export function rowLifecycle(row:StoredBillRow):BillLifecycle{
   if(row.expires_at===null||row.last_activity_at===null||!Number.isSafeInteger(row.expires_at)||!Number.isSafeInteger(row.last_activity_at)||(row.all_paid_at!==null&&!Number.isSafeInteger(row.all_paid_at)))throw new Error("bill-retention-uninitialized");
   return {lastActivityAt:row.last_activity_at,allPaidAt:row.all_paid_at,expiresAt:row.expires_at};
 }
 export async function retentionRolloutAt(bindings:RetentionBindings):Promise<number>{
-  const policy=await bindings.DB.prepare("SELECT rollout_at FROM bill_retention_policy WHERE id = 'lifecycle-v1'").first<{rollout_at:number}>();
-  if(!policy)throw new Error("bill-retention-policy-unavailable");
-  return policy.rollout_at;
+  let pending=rolloutCache.get(bindings.DB);
+  if(!pending){
+    pending=(async()=>{
+      const policy=await bindings.DB.prepare("SELECT rollout_at FROM bill_retention_policy WHERE id = 'lifecycle-v1'").first<{rollout_at:number}>();
+      if(!policy)throw new Error("bill-retention-policy-unavailable");return policy.rollout_at;
+    })();
+    rolloutCache.set(bindings.DB,pending);
+    void pending.catch(()=>rolloutCache.delete(bindings.DB));
+  }
+  return pending;
 }
 export async function initializeLegacyRow(bindings:RetentionBindings,row:StoredBillRow,rolloutAt:number):Promise<StoredBillRow|null>{
   if(row.expires_at!==null)return row;

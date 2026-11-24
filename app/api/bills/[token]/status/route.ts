@@ -1,5 +1,5 @@
-import { setParticipantPaid } from "../../../../../db/repository";
-import {requiredRevision,withDraftErrors,draftJson} from "../../../../../lib/harn-tee/draft-http";
+import { setParticipantPaid,setParticipantPaidReceipt } from "../../../../../db/repository";
+import {billUnavailableResponse,requiredRevision,withDraftErrors,draftJson} from "../../../../../lib/harn-tee/draft-http";
 import { paymentStatusBodySchema } from "../../../../../lib/harn-tee/server-validation";
 import {
   InvalidJsonBodyError,
@@ -25,7 +25,7 @@ export async function POST(
     const parsed=paymentStatusBodySchema.safeParse(await readJsonBody(request,MAX_STATUS_JSON_BYTES));
     if(!parsed.success)return draftJson({error:"ข้อมูลสถานะไม่ครบถ้วน"},400);
     const ack=await setParticipantPaid(token,parsed.data.participantId,parsed.data.paid,revision);
-    return ack?draftJson({participants:ack.document.participants,revision:ack.revision},200,ack.revision):draftJson({error:"ไม่พบข้อมูลบิลนี้"},404);
+    return ack?draftJson({participants:ack.document.participants,revision:ack.revision,lifecycle:ack.lifecycle,serverNow:ack.serverNow},200,ack.revision):draftJson({error:"ไม่พบข้อมูลบิลนี้"},404);
   });
   const { token } = await context.params;
   try {
@@ -35,14 +35,16 @@ export async function POST(
       return json({ error: "ข้อมูลสถานะไม่ครบถ้วน" }, { status: 400 });
     }
 
-    const document = await setParticipantPaid(
+    const ack = await setParticipantPaidReceipt(
       token,
       parsed.data.participantId,
       parsed.data.paid,
     );
-    if (!document) return json({ error: "ไม่พบข้อมูลบิลนี้" }, { status: 404 });
-    return json({ participants: document.participants });
+    if (!ack) return json({ error: "ไม่พบข้อมูลบิลนี้" }, { status: 404 });
+    return json({ participants: ack.document.participants,lifecycle:ack.lifecycle,serverNow:ack.serverNow });
   } catch (error) {
+    const unavailable=billUnavailableResponse(error);if(unavailable)return unavailable;
+    if(error instanceof Error&&error.message==="invalid-bill"&&"errors" in error)return json({errors:error.errors},{status:400});
     if (error instanceof RequestBodyTooLargeError) {
       return json({ error: "ข้อมูลสถานะมีขนาดใหญ่เกินไป" }, { status: 413 });
     }

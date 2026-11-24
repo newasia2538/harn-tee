@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       shareToken: record.shareToken,
       editToken: record.editToken,
       document: record.document,
+      lifecycle:record.lifecycle,serverNow:record.serverNow,revision:record.revision,
     });
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {

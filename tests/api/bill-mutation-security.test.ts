@@ -8,6 +8,7 @@ const repository = vi.hoisted(() => ({
   updateBillByEditToken: vi.fn(),
   deleteBillByEditToken: vi.fn(),
   setParticipantPaid: vi.fn(),
+  setParticipantPaidReceipt: vi.fn(),
 }));
 
 vi.mock("../../db/repository", () => repository);
@@ -43,7 +44,7 @@ describe("bill mutation input security", () => {
     expect(response.status).toBe(409);
   });
   it("reports a concurrent paid-status write as a conflict",async()=>{
-    repository.setParticipantPaid.mockRejectedValueOnce(new Error("revision-conflict"));
+    repository.setParticipantPaidReceipt.mockRejectedValueOnce(new Error("revision-conflict"));
     const response=await updatePaymentStatus(new Request("https://harn-tee.test",{method:"POST",body:JSON.stringify({participantId:"p1",paid:true})}),{params:Promise.resolve({token:"share-key"})});
     expect(response.status).toBe(409);
   });
@@ -123,7 +124,7 @@ describe("bill mutation input security", () => {
   });
 
   it("bounds and strictly validates public payment-status requests", async () => {
-    repository.setParticipantPaid.mockClear();
+    repository.setParticipantPaidReceipt.mockClear();
     const tooLarge = await updatePaymentStatus(
       new Request("https://harn-tee.test/api/bills/share-key/status", {
         method: "POST",
@@ -143,11 +144,11 @@ describe("bill mutation input security", () => {
       { params: Promise.resolve({ token: "share-key" }) },
     );
     expect(unexpected.status).toBe(400);
-    expect(repository.setParticipantPaid).not.toHaveBeenCalled();
+    expect(repository.setParticipantPaidReceipt).not.toHaveBeenCalled();
   });
 
   it("does not return sensitive recipient values from the shared payment-status endpoint", async () => {
-    repository.setParticipantPaid.mockResolvedValue(current);
+    repository.setParticipantPaidReceipt.mockResolvedValue(withLifecycle({document:current}));
     const response = await updatePaymentStatus(
       new Request("https://harn-tee.test/api/bills/share-key/status", {
         method: "POST",
