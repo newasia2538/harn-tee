@@ -19,6 +19,9 @@ import { CopyButton } from "@/components/harn-tee/copy-button";
 import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
 import {DraftRecovery} from "@/components/harn-tee/draft-recovery";
 import {DraftSaveStatus} from "@/components/harn-tee/draft-save-status";
+import {billServerClock} from "@/lib/harn-tee/bill-clock";
+import type {LifecycleSnapshot} from "@/lib/harn-tee/bill-lifecycle";
+import {DeletedBillState} from "@/components/harn-tee/deleted-bill-state";
 import {LiveBillTotals} from "@/components/harn-tee/live-bill-totals";
 import {useDraftSession} from "@/lib/harn-tee/use-draft-session";
 import {setNumericInput,validateFormForPublication,type DraftAck,type NumericField} from "@/lib/harn-tee/draft-state";
@@ -57,9 +60,9 @@ function BrandMark() {
   );
 }
 
-export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionDependencies }: { initialDocument?: BillDocument;initialSnapshot?:DraftAck; editToken?: string;sessionDependencies?:{store:DraftStore;api:DraftApi} }) {
+export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,sessionDependencies }: { initialDocument?: BillDocument;initialSnapshot?:DraftAck; editToken?: string;localId?:string;sessionDependencies?:{store:DraftStore;api:DraftApi} }) {
   const router=useRouter();
-  const session=useDraftSession({initialDocument,initialSnapshot,editToken,dependencies:sessionDependencies});
+  const session=useDraftSession({initialDocument,initialSnapshot,editToken,localId,dependencies:sessionDependencies});
   const api=useRef(sessionDependencies?.api??createDraftApi()).current;
   const draft=session.form.draft,step=session.form.step,qrFile=session.qr.kind==="local"?session.qr.file:null;
   const isEditMode=session.remote?.status==="published";
@@ -90,7 +93,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
   const setStep=(updater:number|((step:number)=>number))=>session.setForm(form=>({...form,step:Math.max(0,Math.min(2,typeof updater==="function"?updater(form.step):updater)) as 0|1|2}));
   const onNumericChange=(field:NumericField,raw:string)=>{setSaved(false);setRecoveryCopy(null);session.setForm(form=>setNumericInput(form,field,raw));};
   const report=(caught:unknown)=>setError(caught instanceof DraftApiError?(caught.status===409?"ข้อมูลเปลี่ยนจากอีกหน้าหรืออีกเครื่อง กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก":"เชื่อมต่อไม่สำเร็จ กรุณาลองอีกครั้ง"):caught instanceof Error?caught.message:"บันทึกไม่สำเร็จ กรุณาลองใหม่");
-  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken)router.push("/");};
+  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken||localId)router.push("/");};
   const draftRef = useRef(draft);
   const actionsRef=useRef({setStep,setDraft});
   useEffect(() => {
@@ -211,12 +214,15 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
       headers: { "Content-Type": "application/json","If-Match":`"${session.remote!.revision}"` },
       body: JSON.stringify({ participantId, paid: nextPaid }),
     });
+    if(response.status===410){const body=await response.json() as {code:string};session.failSubmission(new DraftApiError(410,body.code));return;}
     if(response.status===409){const conflict=new DraftApiError(409,"revision-conflict");session.failSubmission(conflict);report(conflict);return;}
-    if(response.ok){const body=await response.json() as {revision:string};setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
+    if(response.ok){const body=await response.json() as {revision:string;lifecycle:LifecycleSnapshot;serverNow:number};billServerClock.sync(body.serverNow);setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision,lifecycle:body.lifecycle}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
   };
 
+  if(session.availability!=="active")return <DeletedBillState state={session.availability}/>;
+  if(localId&&session.localSave.code==="local-not-found")return <main className="mx-auto max-w-xl p-6 text-center text-[#15263d]"><h1 className="font-display text-2xl">ไม่พบดราฟต์นี้ในเครื่อง</h1><Link href="/history" className="mt-5 inline-block underline">กลับไปบิลของฉัน</Link></main>;
   if(session.phase==="hydrating")return <main className="mx-auto max-w-2xl p-6 text-[#243b53]"><BrandMark/><p role="status" className="mt-8">กำลังโหลดดราฟต์…</p>{session.remoteSave.status==="error"&&<Button onClick={()=>void session.loadLatest().catch(report)}>ลองโหลดอีกครั้ง</Button>}{error&&<p role="alert">{error}</p>}</main>;
-  if(session.phase==="recovery"&&session.recovery)return <main className="mx-auto max-w-2xl p-6"><BrandMark/><DraftRecovery candidate={session.recovery} onResume={()=>void session.resume().catch(report)} onStartFresh={()=>void startNew().catch(report)}/></main>;
+  if(session.phase==="recovery"&&session.recovery)return <main className="mx-auto max-w-2xl p-6"><BrandMark/><Link href="/history" className="mt-4 block text-sm font-semibold text-[#185c74]">บิลของฉัน</Link><DraftRecovery candidate={session.recovery} onResume={()=>void session.resume().catch(report)} onStartFresh={()=>void startNew().catch(report)}/></main>;
 
   if (links) {
     return (
@@ -234,6 +240,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <BrandMark />
+          <Link href="/history" className="shrink-0 text-sm font-semibold text-[#185c74]">บิลของฉัน</Link>
           <div className="hidden items-center gap-2 text-xs font-semibold text-[#789085] sm:flex">
             <Sparkles size={15} className="text-[#e77b57]" />
             ช่วยหารบิลที่เราจ่ายกันไป
@@ -275,7 +282,8 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
             </div>
           ) : null}
 
-          <fieldset disabled={saving||session.phase==="submitting"} className="mt-6 min-w-0 space-y-5">
+          {session.deletionPending&&<p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">รอยืนยันการลบเมื่อเชื่อมต่อ · หยุดการแก้ไขบิลชั่วคราว <Link href="/history" className="underline">ไปที่บิลของฉัน</Link></p>}
+          <fieldset disabled={saving||session.deletionPending||session.phase==="submitting"} className="mt-6 min-w-0 space-y-5">
             {step === 0 ? (
               <>
                 <Card className="border-[#dfe8df] bg-white/85 shadow-[0_22px_60px_rgb(32_67_56/7%)]">

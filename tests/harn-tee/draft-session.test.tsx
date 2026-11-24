@@ -125,3 +125,6 @@ it("offline_delete_intent_blocks_edits_without_erasing_the_work",async()=>{
  const saved=checkpoint(),fx=sessionFixtures(saved);vi.mocked(fx.store.history.list).mockResolvedValue([{kind:"bill",schemaVersion:1,localId:saved.localId,recordIds:[saved.localId],title:"bill",totalSatang:100,lifecycle:fx.ack.lifecycle,localVersion:0,deadlineSource:"local",syncState:"offline",shareUsable:false,pendingDelete:{revision:"old",requestedAt:1}}]);
  const {result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("recovery"));await act(()=>result.current.resume());const title=result.current.form.draft.title;act(()=>result.current.setForm(f=>({...f,draft:{...f.draft,title:"blocked"}})));expect(result.current.form.draft.title).toBe(title);await expect(result.current.prepareSubmission()).rejects.toThrow();expect(fx.api.create).not.toHaveBeenCalled();
 });
+it("a_missing_history_draft_never_creates_a_new_home_checkpoint",async()=>{
+ const fx=sessionFixtures(),{result}=renderHook(()=>useDraftSession({localId:"missing",dependencies:fx}));await waitFor(()=>expect(result.current.localSave.code).toBe("local-not-found"));expect(fx.store.writeWorking).not.toHaveBeenCalled();expect(fx.store.startNew).not.toHaveBeenCalled();
+});

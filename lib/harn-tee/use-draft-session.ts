@@ -137,6 +137,7 @@ function createSession(options:Options,emit:(view:View)=>void){
     const id=generation;let saved:Checkpoint|null=null,ack=options.initialSnapshot;
     try{saved=await (await storePromise).read(context());}catch(error){guard(id);update({localSave:errorState(error)});}
     guard(id);
+    if(options.localId&&!saved){update({localSave:{status:"error",code:"local-not-found"}});return;}
     if(options.editToken){
       try{ack=await api.load(options.editToken);guard(id);}catch(error){guard(id);if(handleGone(error))return;update({remoteSave:errorState(error)});if(!ack&&!saved)return;}
     }
