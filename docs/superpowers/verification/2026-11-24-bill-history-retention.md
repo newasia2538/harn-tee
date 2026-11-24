@@ -1,6 +1,6 @@
 # Bill history and retention verification
 
-Local implementation on `codex/bill-history-retention-design`. No production migration, deletion, push or deployment performed.
+Implementation source commit **`45bb95b`**, on `codex/bill-history-retention-design`. Product code and all five review fixes are complete; the device checks listed below remain open. No production migration, deletion, push or deployment performed.
 
 ## Automated evidence
 
