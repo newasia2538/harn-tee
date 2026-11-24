@@ -13,6 +13,7 @@
   max-height: calc(100dvh - var(--bill-total-keyboard-inset, 0px) - 1rem);
   display: flex;
   flex-direction: column;
+  margin: 0 !important;
   padding: .625rem .875rem max(.75rem, env(safe-area-inset-bottom));
   border: 1px solid #d9e3ec;
   border-radius: 1rem 1rem 0 0;
@@ -35,6 +36,8 @@
 .harn-bill-total-details dt {color:#52677b;}
 .harn-bill-total-details dd {font-weight:500;font-variant-numeric:tabular-nums;}
 .harn-bill-total-notice {flex-shrink:0;margin-bottom:.5rem;border-radius:.5rem;background:#fff3e6;padding:.375rem .5rem;color:#835321;font-size:.75rem;line-height:1.5;}
+html {scroll-padding-bottom:var(--harn-bottom-clearance,0px);}
+.harn-bill-entry :is(input,textarea,select,[role="alert"]) {scroll-margin-bottom:var(--harn-bottom-clearance,0px);}
 @media(max-width:350px) {.harn-bill-total-row {gap:.5rem;}.harn-bill-total {padding-inline:.75rem;}.harn-bill-total-next {padding-inline:.625rem;}}
 
 @utility scrollbar-thin {

@@ -3,8 +3,9 @@ import {afterEach,expect,it,vi} from "vitest";
 import {cleanup,fireEvent,render,screen,within} from "@testing-library/react";
 import {LiveBillTotals} from "../../components/harn-tee/live-bill-totals";
 import {setNumericInput} from "../../lib/harn-tee/draft-state";
+import {useState} from "react";
 import {draftFixture} from "../helpers/draft-fixtures";
-afterEach(cleanup);
+afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.restoreAllMocks();});
 
 it("expands_from_total_and_preserves_receipt_vs_collection_labels",()=>{
   const form=draftFixture();
@@ -56,4 +57,11 @@ it("keeps_large_receipt_amount_and_live_updates_available",()=>{
   expect(screen.getByRole("button",{name:/ยอดล่าสุด/}).textContent).toContain("987654321.00 บาท");
   form.draft.items[0].priceSatang=10000;rerender(<LiveBillTotals form={form} onNext={()=>undefined}/>);
   expect(screen.getByRole("button",{name:/ยอดล่าสุด/}).textContent).toContain("100.00 บาท");
+});
+it("reserves_keyboard_occlusion_along_with_bar",()=>{
+  const viewport=Object.assign(new EventTarget(),{height:500,offsetTop:0});
+  vi.stubGlobal("visualViewport",viewport);vi.stubGlobal("innerHeight",800);
+  function Page(){const [height,setHeight]=useState(0);return <><LiveBillTotals form={draftFixture()} onNext={()=>undefined} onHeightChange={setHeight}/><output aria-label="พื้นที่เผื่อด้านล่าง">{height}</output></>;}
+  render(<Page/>);
+  expect(screen.getByRole("status",{name:"พื้นที่เผื่อด้านล่าง"}).textContent).toBe("384");
 });

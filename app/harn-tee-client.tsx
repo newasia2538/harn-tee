@@ -68,8 +68,19 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
   const [recoveryCopy,setRecoveryCopy]=useState<{signature:string;shareUrl?:string;editUrl:string;copied:boolean;acknowledged:boolean}|null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [totalBarHeight,setTotalBarHeight]=useState(84);
   const [saved, setSaved] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+  const totalBarVisible=step===1&&session.phase==="editing";
+  useEffect(()=>{
+    if(!totalBarVisible)return;
+    const root=document.documentElement,previous=root.style.getPropertyValue("--harn-bottom-clearance");
+    root.style.setProperty("--harn-bottom-clearance",`${totalBarHeight+16}px`);
+    const focused=document.activeElement;
+    const frame=focused instanceof HTMLElement&&focused.matches("input,textarea,select")&&typeof requestAnimationFrame==="function"
+      ?requestAnimationFrame(()=>focused.scrollIntoView?.({block:"nearest"})):undefined;
+    return ()=>{if(previous)root.style.setProperty("--harn-bottom-clearance",previous);else root.style.removeProperty("--harn-bottom-clearance");if(frame!==undefined)cancelAnimationFrame(frame);};
+  },[totalBarHeight,totalBarVisible]);
   const [paidState, setPaidState] = useState<Record<string, boolean>>(() =>
     Object.fromEntries((initialDocument??initialSnapshot?.document)?.participants.map((person) => [person.id, person.paid]) ?? []),
   );
@@ -219,7 +230,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
   }
 
   return (
-    <main className="min-h-screen px-4 pb-12 pt-5 sm:px-6 sm:pt-8">
+    <main className="harn-bill-entry min-h-screen px-4 pb-12 pt-5 sm:px-6 sm:pt-8" style={totalBarVisible?{paddingBottom:totalBarHeight+32}:undefined}>
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <BrandMark />
@@ -295,7 +306,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
 
             {step === 1 ? (
               <>
-                <LiveBillTotals form={session.form} onNext={nextStep} disabled={saving||session.phase==="submitting"}/>
+                {totalBarVisible&&<LiveBillTotals form={session.form} onNext={nextStep} disabled={saving} onHeightChange={setTotalBarHeight}/>}
                 <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} onImport={importReceiptItems} numbers={session.form.numbers} onNumericChange={onNumericChange}/>
                 <FeeEditor
                   vatPercent={draft.vatPercent}
@@ -372,15 +383,15 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
                   <ArrowLeft size={17} /> ย้อนกลับ
                 </Button>
               ) : <span />}
-              {step < 2 ? (
+              {step === 0 ? (
                 <Button type="button" onClick={nextStep} className="h-12 rounded-xl bg-[#ef6c4d] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(239_108_77/22%)] hover:bg-[#d95c40]">
-                  {step === 0 ? "ไปใส่รายการสินค้า" : "ตรวจสอบยอด"} <ArrowRight size={17} />
+                  ไปใส่รายการสินค้า <ArrowRight size={17} />
                 </Button>
-              ) : (
+              ) : step===2 ? (
                 <Button type="button" onClick={saveBill} disabled={saving} className="h-12 rounded-xl bg-[#2f7256] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(47_114_86/22%)] hover:bg-[#265d48]">
                   {saving ? "กำลังบันทึก..." : isEditMode ? "บันทึกการแก้ไข" : "ยืนยันและสร้างลิงก์แชร์"} <Check size={17} />
                 </Button>
-              )}
+              ) : null}
             </div>
             {saved ? <div className="rounded-xl border border-[#bfdcc8] bg-[#eff9f0] px-4 py-3 text-sm font-semibold text-[#2f7256]">บันทึกการแก้ไขแล้ว ลองเปิด share link เพื่อดูผลล่าสุด</div> : null}
           </fieldset>

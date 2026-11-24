@@ -10,7 +10,7 @@ export function LiveBillTotals({form,onNext,disabled=false,onHeightChange}:{form
   const {calculation:c,provisional,unassignedCount}=selectLiveTotals(form);
   const [expanded,setExpanded]=useState(false),id=useId(),ref=useRef<HTMLElement>(null);
   const {height,bottomInset}=useBottomBarLayout(ref,true);
-  useEffect(()=>{onHeightChange?.(height);},[height,onHeightChange]);
+  useEffect(()=>{onHeightChange?.(height+bottomInset);},[height,bottomInset,onHeightChange]);
   return <section ref={ref} aria-label="ยอดล่าสุด" className="harn-bill-total" style={{bottom:bottomInset,"--bill-total-keyboard-inset":`${bottomInset}px`} as CSSProperties}>
     <div id={id} role="group" aria-label="รายละเอียดค่าบริการและภาษี" hidden={!expanded} className="harn-bill-total-details">
       <dl>
