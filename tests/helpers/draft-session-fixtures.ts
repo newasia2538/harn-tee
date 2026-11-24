@@ -10,6 +10,7 @@ export function checkpoint():WorkingCheckpoint{return {kind:"working",schemaVers
 export function sessionFixtures(initial:Checkpoint|null=null){
   let stored=initial;const assets=new Map<string,File>();let serial=0;
   const store:DraftStore={
+    history:{list:vi.fn(async()=>[]),upsert:vi.fn(async entry=>entry),purge:vi.fn(),markPendingDelete:vi.fn(),confirmRevocation:vi.fn()},
     read:vi.fn(async()=>stored),
     writeWorking:vi.fn(async(record,expected,file)=>{
       if(stored&&stored.localId===record.localId&&stored.localVersion!==expected)throw new Error("storage-conflict");

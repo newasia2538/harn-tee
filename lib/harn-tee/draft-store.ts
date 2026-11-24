@@ -1,10 +1,13 @@
 import { hashToken } from "./tokens";
-import { makeBlankForm, parseStoredCheckpoint, sanitizeDraftForm, type Checkpoint, type CompletionCheckpoint, type DraftContext, type WorkingCheckpoint } from "./draft-state";
+import { hasMeaningfulDraft, makeBlankForm, parseStoredCheckpoint, sanitizeDraftForm, type Checkpoint, type CompletionCheckpoint, type DraftContext, type WorkingCheckpoint } from "./draft-state";
 
-export class DraftStorageError extends Error {
-  constructor(public code:"storage-unavailable"|"storage-conflict"|"storage-invalid"){super(code);}
-}
+import {openBrowserDb,idbRequest as request,DraftStorageError} from "./browser-db";
+export {DraftStorageError} from "./browser-db";
+import {createHistoryStore,historyInTransaction, type HistoryStore} from "./history-store";
+import {enrollCheckpoint,migrateHistory} from "./history-enrollment";
+
 export interface DraftStore {
+  history:HistoryStore;
   read(context:DraftContext):Promise<Checkpoint|null>;
   writeWorking(record:WorkingCheckpoint,expectedVersion:number|null,qrFile?:File):Promise<WorkingCheckpoint>;
   loadQr(localId:string,selectionId:string):Promise<File|null>;
@@ -15,37 +18,16 @@ export interface DraftStore {
 }
 type Alias={localId:string};
 type Asset={localId:string;selectionId:string;blob:Blob;name:string;type:string};
-function request<T>(value:IDBRequest<T>):Promise<T>{return new Promise((resolve,reject)=>{value.onsuccess=()=>resolve(value.result);value.onerror=()=>reject(value.error);});}
-async function contextKey(context:DraftContext){return context.kind==="new"?"new":"edit:"+await hashToken(context.editToken);}
+async function contextKey(context:DraftContext){return context.kind==="new"?"new":context.kind==="local"?"local:"+context.localId:"edit:"+await hashToken(context.editToken);}
 export async function openDraftStore(factory:IDBFactory|undefined=globalThis.indexedDB):Promise<DraftStore>{
-  if(!factory)throw new DraftStorageError("storage-unavailable");
-  const db=await new Promise<IDBDatabase>((resolve,reject)=>{
-    const opening=factory.open("harn-tee-drafts",1);let failed=false;
-    opening.onupgradeneeded=()=>{
-      const database=opening.result;
-      database.createObjectStore("records");
-      database.createObjectStore("aliases").createIndex("localId","localId");
-      database.createObjectStore("qrAssets").createIndex("localId","localId");
-    };
-    opening.onerror=()=>reject(new DraftStorageError("storage-unavailable"));
-    opening.onblocked=()=>{failed=true;reject(new DraftStorageError("storage-unavailable"));};
-    opening.onsuccess=()=>{if(failed)opening.result.close();else resolve(opening.result);};
-  });
-  let closed=false;
-  const close=()=>{closed=true;db.close();};db.onversionchange=close;
-  async function transaction<T>(mode:IDBTransactionMode,run:(tx:IDBTransaction)=>Promise<T>):Promise<T>{
-    if(closed)throw new DraftStorageError("storage-unavailable");
-    const tx=db.transaction(["records","aliases","qrAssets"],mode);
-    const done=new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error??new DraftStorageError("storage-unavailable"));tx.onabort=()=>reject(tx.error??new DraftStorageError("storage-invalid"));});
-    // Register immediately so an aborted transaction cannot create an unhandled rejection.
-    void done.catch(()=>undefined);
-    try{const value=await run(tx);await done;return value;}catch(error){try{tx.abort();}catch{}await done.catch(()=>undefined);throw error;}
-  }
+  const database=await openBrowserDb(factory),{transaction,close}=database;
+  try{await transaction("readwrite",migrateHistory);}catch(error){close();throw error;}
   const conflict=()=>{throw new DraftStorageError("storage-conflict");};
   async function current(tx:IDBTransaction,id:string,expected:number):Promise<Checkpoint>{
     const found=await request<unknown>(tx.objectStore("records").get(id));
     if(!found)return conflict();const parsed=parseStoredCheckpoint(found);
     if(parsed.localVersion!==expected)return conflict();
+    const history=await historyInTransaction(tx,id,parsed.kind==="complete"?parsed.billId:parsed.remote?.id);if(history?.kind==="deleting"||history?.pendingDelete)return conflict();
     if(await request(tx.objectStore("aliases").index("localId").count(id))===0)return conflict();
     return parsed;
   }
@@ -55,6 +37,7 @@ export async function openDraftStore(factory:IDBFactory|undefined=globalThis.ind
   }
   return {
     close,
+    history:createHistoryStore(database),
     async read(context){const key=await contextKey(context);return transaction("readonly",async tx=>{
       const alias=await request<Alias|undefined>(tx.objectStore("aliases").get(key));if(!alias)return null;
       const record=await request<unknown>(tx.objectStore("records").get(alias.localId));
@@ -85,9 +68,10 @@ export async function openDraftStore(factory:IDBFactory|undefined=globalThis.ind
           }
         }
         if(previous?.kind==="working"&&previous.qr.kind==="local"&&(input.qr.kind!=="local"||input.qr.selectionId!==previous.qr.selectionId))await request(assets.delete([input.localId,previous.qr.selectionId]));
-        const record=parseStoredCheckpoint({...input,form,localVersion:(expected??-1)+1,savedAt:Date.now()});
+        let record=parseStoredCheckpoint({...input,form,localVersion:(expected??-1)+1,savedAt:Date.now()});
         if(record.kind!=="working")throw new DraftStorageError("storage-invalid");
-        await request(records.put(record,record.localId));return record;
+        record=await enrollCheckpoint(tx,record,previous);
+        if(record.kind!=="working")throw new DraftStorageError("storage-invalid");await request(records.put(record,record.localId));return record;
       });
     },
     async loadQr(localId,selectionId){return transaction("readonly",async tx=>{
@@ -102,8 +86,9 @@ export async function openDraftStore(factory:IDBFactory|undefined=globalThis.ind
       await request(aliases.put({localId},key));await request(tx.objectStore("records").put(updated,localId));return updated;
     });},
     async writeCompletion(input,expected){return transaction("readwrite",async tx=>{
-      await current(tx,input.localId,expected);
-      const record=parseStoredCheckpoint({...input,localVersion:expected+1,savedAt:Date.now()});if(record.kind!=="complete")throw new DraftStorageError("storage-invalid");
+      const previous=await current(tx,input.localId,expected);
+      let record=parseStoredCheckpoint({...input,localVersion:expected+1,savedAt:Date.now()});if(record.kind!=="complete")throw new DraftStorageError("storage-invalid");
+      record=await enrollCheckpoint(tx,record,previous);if(record.kind!=="complete")throw new DraftStorageError("storage-invalid");
       await removeAssets(tx,input.localId);await request(tx.objectStore("records").put(record,input.localId));return record;
     });},
     async startNew(previousId){return transaction("readwrite",async tx=>{
@@ -112,10 +97,11 @@ export async function openDraftStore(factory:IDBFactory|undefined=globalThis.ind
       if(owner){
         const old=await request<Checkpoint|undefined>(records.get(owner.localId));
         const keys=await request(aliases.index("localId").getAllKeys(owner.localId));
-        if(keys.some(key=>key!=="new")){if(old)await request(records.put({...old,localVersion:old.localVersion+1},old.localId));}
+        const meaningful=old&&(old.kind==="complete"||hasMeaningfulDraft(old.form,old.qr.kind==="local"));
+        if(meaningful||keys.some(key=>key!=="new")){if(old){await request(records.put({...old,localVersion:old.localVersion+1},old.localId));if(meaningful)await request(aliases.put({localId:old.localId},"local:"+old.localId));}}
         else{await removeAssets(tx,owner.localId);await request(records.delete(owner.localId));}
       }
-      const record:WorkingCheckpoint={kind:"working",schemaVersion:1,localId:crypto.randomUUID(),localVersion:0,formSequence:0,form:sanitizeDraftForm(makeBlankForm()),qr:{kind:"none"},savedAt:Date.now()};
+      const record:WorkingCheckpoint={kind:"working",schemaVersion:1,localId:crypto.randomUUID(),localVersion:0,formSequence:0,provenance:"created-here",form:sanitizeDraftForm(makeBlankForm()),qr:{kind:"none"},savedAt:Date.now()};
       await request(records.put(record,record.localId));await request(aliases.put({localId:record.localId},"new"));return record;
     });},
   };

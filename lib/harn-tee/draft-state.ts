@@ -13,10 +13,11 @@ export type RemoteIdentity = {id:string;editToken:string;shareToken?:string;revi
 export type DraftAck = {id:string;document:BillDocument;form?:SafeDraftForm;revision:string;lifecycle:LifecycleSnapshot;serverNow:number;lastConfirmationId?:string;qrSelectionId?:string};
 export type QrSelection = {kind:"none"}|{kind:"server"}|{kind:"local";selectionId:string;file:File};
 export type StoredQrSelection = {kind:"none"}|{kind:"server"}|{kind:"local";selectionId:string;name:string;contentType:"image/png"|"image/jpeg"|"image/webp";size:number};
-export type WorkingCheckpoint = {kind:"working";schemaVersion:1;localId:string;localVersion:number;formSequence:number;form:SafeDraftForm;remote?:RemoteIdentity;creationKey?:string;pendingConfirmation?:{id:string;formSequence:number};qr:StoredQrSelection;savedAt:number;serverSavedAt?:number};
-export type CompletionCheckpoint = {kind:"complete";schemaVersion:1;localId:string;localVersion:number;billId:string;shareUrl:string;editUrl:string;savedAt:number};
+type CheckpointMetadata={provenance?:"created-here"|"edit-only";lifecycle?:LifecycleSnapshot};
+export type WorkingCheckpoint = CheckpointMetadata & {kind:"working";schemaVersion:1;localId:string;localVersion:number;formSequence:number;form:SafeDraftForm;remote?:RemoteIdentity;creationKey?:string;pendingConfirmation?:{id:string;formSequence:number};qr:StoredQrSelection;savedAt:number;serverSavedAt?:number};
+export type CompletionCheckpoint = CheckpointMetadata & {kind:"complete";schemaVersion:1;localId:string;localVersion:number;billId:string;shareUrl:string;editUrl:string;savedAt:number};
 export type Checkpoint = WorkingCheckpoint | CompletionCheckpoint;
-export type DraftContext = {kind:"new"}|{kind:"edit";editToken:string};
+export type DraftContext = {kind:"new"}|{kind:"edit";editToken:string}|{kind:"local";localId:string};
 export type WriteResult<T> = {kind:"ok";value:T}|{kind:"not-found"}|{kind:"conflict";code?:"revision-conflict"|"not-draft"|"share-proof-stale"};
 export type SaveState = {status:"idle"|"pending"|"saving"|"saved"|"error"|"conflict";savedAt?:number;code?:string};
 
@@ -36,7 +37,8 @@ const storedQrSchema=z.discriminatedUnion("kind",[
   z.object({kind:z.literal("none")}).strict(),z.object({kind:z.literal("server")}).strict(),
   z.object({kind:z.literal("local"),selectionId:key,name:z.string().max(255),contentType:z.enum(["image/png","image/jpeg","image/webp"]),size:counter.max(5*1024*1024)}).strict(),
 ]);
-const checkpointBase={schemaVersion:z.literal(1),localId:key,localVersion:counter,savedAt:counter};
+const lifecycleSchema=z.object({lastActivityAt:counter,allPaidAt:counter.nullable(),expiresAt:counter,paymentStatus:z.enum(["draft","unpaid","partial","paid"]),paidCount:counter,payerCount:counter}).strict();
+const checkpointBase={provenance:z.enum(["created-here","edit-only"]).optional(),lifecycle:lifecycleSchema.optional(),schemaVersion:z.literal(1),localId:key,localVersion:counter,savedAt:counter};
 const workingSchema=z.object({...checkpointBase,kind:z.literal("working"),formSequence:counter,form:persistedFormSchema,remote:remoteSchema.optional(),creationKey:key.optional(),pendingConfirmation:z.object({id:key,formSequence:counter}).strict().optional(),qr:storedQrSchema,serverSavedAt:counter.optional()}).strict();
 const completionSchema=z.object({...checkpointBase,kind:z.literal("complete"),billId:key,shareUrl:z.string().url().regex(/^https?:\/\//),editUrl:z.string().url().regex(/^https?:\/\//)}).strict();
 
@@ -113,7 +115,7 @@ export function validateFormForPublication(form:DraftForm,hasPendingQr=false):Va
   }
   return errors.length?{valid:false,errors:[...new Set(errors)]}:{valid:true,errors:[]};
 }
-export function hasMeaningfulDraft(form:DraftForm) {
+export function hasMeaningfulDraft(form:DraftForm,hasLocalQr=false) {
   const d=form.draft,r=d.recipient;
-  return Boolean(d.title||d.participants.some(p=>p.name)||d.items.some(i=>i.name||i.priceSatang)||d.vatPercent||d.serviceChargePercent||r?.name||r?.bank||r?.promptPay||r?.qr||Object.values(form.numbers.prices).some(Boolean));
+  return Boolean(hasLocalQr||d.participants.length>1||d.items.length>1||Object.values(form.numbers.itemVat).some(Boolean)||Object.values(form.numbers.itemService).some(Boolean)||form.numbers.vat||form.numbers.service||d.title||d.participants.some(p=>p.name)||d.items.some(i=>i.name||i.priceSatang)||d.vatPercent||d.serviceChargePercent||r?.name||r?.bank||r?.promptPay||r?.qr||Object.values(form.numbers.prices).some(Boolean));
 }
