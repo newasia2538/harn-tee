@@ -95,4 +95,4 @@ Design approved 2026-11-24. This implementation plan requires review before exec
 
 ## Execution status — 2026-11-24
 
-Implementation and automated gates complete (source commit `45bb95b`). Integrated native desktop/360px/320px behavior was observed. Step2.5 remains partially open for200% text zoom, a long-list/OCR-overlay native pass and physical mobile keyboard coverage; these are not claimed as passed. See the verification report for exact observations and limits.
+Implementation and automated gates complete (source commit `9151fc7`). Integrated native desktop/360px/320px behavior, long-list add/remove, large amounts, both fee scopes/formulas, participant details and actual inline OCR review/import were observed. Final acceptance found and fixed preview/summary overflow at320px; rebuilt artifact widths passed. Step2.5 remains partially open for200% text zoom and physical mobile keyboard coverage; these are not claimed as passed. See the verification report for exact observations and limits.
