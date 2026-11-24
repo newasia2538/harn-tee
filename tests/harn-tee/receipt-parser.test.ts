@@ -11,6 +11,37 @@ function ocr(...words: ReceiptOcrWord[]): ReceiptOcrLine {
 }
 
 describe("parseReceiptLines", () => {
+  it.each([
+    "ใบเสร็จรับเงิน", "ใบกำกับภาษีอย่างย่อ", "ใบเสร็จรับเงิน / ใบกำกับภาษี", "ใบกำกับภาษี / ใบเสร็จรับเงิน",
+    "RECEIPT", "SALES RECEIPT", "TAX INVOICE", "TAX INVOICE / RECEIPT", "RECEIPT / TAX INVOICE", "Tax Invoice (ABB)",
+    "Receipt No. 000123", "Invoice #INV-123", "เลขที่ใบเสร็จ: 000123",
+    "Receipt No. ABC-123", "Receipt No000123", "Invoice Number 123", "Receipt no:ABC-123",
+  ])("keeps the document heading/reference out of products: %s", (text) => {
+    const analysis = analyzeReceiptLines([{ text, confidence: 95 }, { text: "ข้าวผัด 50.00", confidence: 95 }]);
+    expect(analysis.items).toMatchObject([{ name: "ข้าวผัด", priceSatang: 5000, status: "ready" }]);
+    expect(analysis.ignoredLines).toEqual([text]);
+  });
+
+  it.each(["Receipt 50.00", "Receipt paper 50.00", "ใบเสร็จรับเงินแบบเล่ม 50.00", "Receipt notebook50", "Invoice numbered50"])("preserves priced products containing document words: %s", (text) => {
+    const analysis = analyzeReceiptLines([{ text, confidence: 95 }]);
+    expect(analysis.items).toMatchObject([{ priceSatang: 5000, status: "ready" }]);
+    expect(analysis.ignoredLines).toEqual([]);
+  });
+
+  it.each(["ข้าวผัด 50.-", "ข้าวผัด ฿50.-", "ข้าวผัด ๕๐.- บาท", "ข้าวผัด 50 .-"])("prefills whole-baht notation for explicit review: %s", (text) => {
+    const [item] = parseReceiptLines([{ text, confidence: 95 }]);
+    expect(item).toMatchObject({ name: "ข้าวผัด", priceSatang: 5000, status: "needs-review", rawLine: text });
+    expect(item.reviewReasons).toEqual(expect.arrayContaining([expect.stringContaining("บาทเต็ม")]));
+  });
+
+  it.each(["ข้าว -50.-", "ข้าว 50.00-", "ข้าว 50..-", "ข้าว 50.-5", "ข้าว 1,23.-"])("does not turn malformed or negative notation into a positive price: %s", (text) => {
+    expect(parseReceiptLines([{ text, confidence: 95 }])[0]).toMatchObject({ priceSatang: null, status: "needs-review" });
+  });
+
+  it("does not trust whole-baht notation as a receipt subtotal before review", () => {
+    expect(analyzeReceiptLines([{ text: "Subtotal 70.-", confidence: 95 }])).toMatchObject({ items: [], subtotalSatang: null });
+  });
+
   it("normalizes Thai digits, comma separators, currency, and satang", () => {
     const [item] = parseReceiptLines([
       { text: "  ข้าวผัด ๑,๒๓๔.๕๐ บาท ", confidence: 90 },

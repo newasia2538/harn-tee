@@ -8,10 +8,12 @@ const PREFIXED_FEE = /^\d+(?:\.\d+)?\s*%\s*(?:(?:vat|tax|service(?:\s*charge)?)(
 const CURRENCY = /^(?:฿|บาท|THB)$/i;
 const PRODUCT_UNIT = /^(?:ml|cl|dl|l|mg|g|kg|oz|lbs?|pcs?|มล\.?|ลิตร|มิลลิลิตร|กรัม|กก\.?|กิโลกรัม|ชิ้น)$/i;
 const TABLE_HEADER = /^(?:(?:รายการ|ชื่อสินค้า|สินค้า|จำนวน|ราคาต่อหน่วย|ราคา|description|item|qty|quantity|unit|price|amount|total)(?:\s+|$)){2,}$/i;
+const DOCUMENT_TITLE = /^(?:(?:tax\s*invoice|(?:sales\s+)?receipt)(?:\s*\/\s*(?:tax\s*invoice|receipt))?|ใบเสร็จรับเงิน(?:\s*\/\s*ใบกำกับภาษี(?:อย่างย่อ)?)?|ใบกำกับภาษี(?:อย่างย่อ)?(?:\s*\/\s*ใบเสร็จรับเงิน)?)(?:\s*\((?:ต้นฉบับ|สำเนา|original|copy|abb)\))?$/i;
+const DOCUMENT_REFERENCE = /^(?:(?:receipt|invoice|bill|order)\s*(?:no\.|(?:no|number)(?=[\s:#\d])|#)\s*[:#]?\s*[a-z0-9/-]+|เลขที่(?:บิล|ใบเสร็จ|ใบกำกับภาษี)\s*:?\s*[a-z0-9/-]+)$/i;
 const NUMERIC_TEXT = /^(?:(?:฿|THB))?[+\-−(]?[0-9OoIlISB.,/:()\-−%]+(?:บาท|฿|THB)?T?$/i;
 
 type Token = { text: string; start: number; end: number; fragmented?: boolean };
-type Money = Token & { satang: number | null; integer: boolean; corrected: boolean };
+type Money = Token & { satang: number | null; integer: boolean; corrected: boolean; wholeBahtNotation: boolean };
 type Part = { text: string; confidence: number | null; box?: ReceiptBox; order: number; origins: number[]; conflict?: boolean };
 type Row = ReturnType<typeof makeRow>;
 
@@ -191,6 +193,7 @@ function confidenceReason(label: string, confidence: number | null, reasons: str
 
 function isNonItem(text: string) {
   return SUBTOTAL.test(text) || NON_ITEM.test(text) || PREFIXED_FEE.test(text) || TABLE_HEADER.test(text) ||
+    DOCUMENT_TITLE.test(text) || DOCUMENT_REFERENCE.test(text) ||
     /^(?:\d{1,2}([/.-])\d{1,2}\1\d{2,4}|\d{4}([/-])\d{1,2}\2\d{1,2})(?:\s|$)/.test(text) ||
     /^(?:\+66|0)[\d -]{8,12}$/.test(text) || /^\d{13}$/.test(text);
 }
@@ -221,7 +224,9 @@ function tokenize(text: string): Token[] {
   return signed.reduce<Token[]>((result, token) => {
     const previous = result.at(-1);
     const before = result.at(-2);
-    if (/^\d{1,2}$/.test(token.text) && previous?.text === "." && before && whole.test(before.text)) {
+    if (previous && whole.test(previous.text) && token.text === ".-") {
+      result[result.length - 1] = { text: previous.text + token.text, start: previous.start, end: token.end, fragmented: true };
+    } else if (/^\d{1,2}$/.test(token.text) && previous?.text === "." && before && whole.test(before.text)) {
       result.splice(-2, 2, { text: before.text + "." + token.text, start: before.start, end: token.end, fragmented: true });
     } else if (previous && previous.text.endsWith(".") && whole.test(previous.text.slice(0, -1)) && /^\d{1,2}$/.test(token.text)) {
       result[result.length - 1] = { text: previous.text + token.text, start: previous.start, end: token.end, fragmented: true };
@@ -235,6 +240,8 @@ function tokenize(text: string): Token[] {
 function parseMoney(token: Token): Money {
   let value = token.text.replace(/^(?:฿|THB)/i, "").replace(/T$/i, "")
     .replace(/(?:บาท|฿|THB)$/i, "");
+  const wholeBahtNotation = /^(?:\d{1,6}|\d{1,3}(?:,\d{3})+)\.-$/.test(value);
+  if (wholeBahtNotation) value = value.slice(0, -2) + ".00";
   let corrected = false;
   // Letter substitutions need a decimal price context and at least one real digit.
   if (/\d/.test(value) && /^[0-9OoIlISB,]+\.[0-9OoIlISB]{1,2}$/.test(value)) {
@@ -249,7 +256,7 @@ function parseMoney(token: Token): Money {
     const amount = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
     if (Number.isSafeInteger(amount)) satang = amount;
   }
-  return { ...token, satang, integer: /^\d+$/.test(value), corrected };
+  return { ...token, satang, integer: /^\d+$/.test(value), corrected, wholeBahtNotation };
 }
 
 function parseProduct(text: string) {
@@ -281,6 +288,7 @@ function parseProduct(text: string) {
     if (!agrees) reasons.push("จำนวน ราคาต่อหน่วย และยอดรายการยังไม่ชัดเจน");
   }
   if (numbers.some((number) => number.corrected)) reasons.push("มีการแก้ตัวอักษร OCR เป็นตัวเลขราคา กรุณาตรวจสอบ");
+  if (numbers.some((number) => number.wholeBahtNotation)) reasons.push("รูปแบบราคา .- เป็นบาทเต็ม กรุณาตรวจสอบกับใบเสร็จ");
   if (numbers.some((number) => number.fragmented)) reasons.push("OCR แยกจุดทศนิยมเป็นหลายคำ กรุณาตรวจสอบราคา");
   if (tokens.some((token, index) => token.text === "." &&
     (isNumericText(tokens[index - 1]?.text ?? "") || isNumericText(tokens[index + 1]?.text ?? "")))) {
@@ -309,7 +317,7 @@ export function analyzeReceiptLines(lines: readonly ReceiptOcrLine[]): {
         const amount = parseProduct(text.slice(label[0].length).replace(/^\s*:\s*/, ""));
         subtotals.push(!row.parts.some((part) => part.conflict) &&
           amount.numbers.length === 1 && !amount.nameTokens.length && amount.price &&
-          !amount.price.corrected ? amount.price.satang : null);
+          !amount.price.corrected && !amount.price.wholeBahtNotation ? amount.price.satang : null);
       }
       continue;
     }
