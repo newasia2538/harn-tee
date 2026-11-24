@@ -346,14 +346,14 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
                 </CardHeader>
                 <CardContent className="space-y-5">
                   <div className="rounded-2xl bg-[#173f35] p-5 text-white">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
+                    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
+                      <div className="min-w-0 max-w-full">
                         <p className="text-sm text-[#b9d8c3]">ยอดตามใบเสร็จ</p>
-                        <p className="mt-1 font-display text-4xl">{formatBaht(calculation.grossTotalSatang)} <span className="text-base font-sans font-medium text-[#c5ded0]">บาท</span></p>
+                        <p className="mt-1 font-display text-[clamp(1.5rem,7vw,2.25rem)] [overflow-wrap:anywhere] sm:text-4xl">{formatBaht(calculation.grossTotalSatang)} <span className="text-base font-sans font-medium text-[#c5ded0]">บาท</span></p>
                       </div>
                       <Badge className="bg-[#e87553] text-white hover:bg-[#e87553]">{draft.participants.length} คน</Badge>
                     </div>
-                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm">
+                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm [overflow-wrap:anywhere]">
                       <div><span className="text-[#b9d8c3]">สินค้า</span><strong className="mt-1 block">{formatBaht(calculation.subtotalSatang)} บาท</strong></div>
                       <div><span className="text-[#b9d8c3]">ปัดขึ้นรวม</span><strong className="mt-1 block text-[#ffd1bd]">+{formatBaht(calculation.roundingDifferenceSatang)} บาท</strong></div>
                     </div>
@@ -361,9 +361,9 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
                   <div className="space-y-2">
                     {calculation.participants.map((person) => (
                       <div className="rounded-xl border border-[#d9e3ec] bg-white px-4 py-3" key={person.participantId}>
-                        <button type="button" onClick={() => setSelectedPerson(person.participantId)} className="flex w-full items-center justify-between gap-3 text-left">
-                          <span><span className="block font-semibold text-[#1f3b55]">{person.name}</span><span className="mt-1 block text-xs text-[#607387]">{person.lineItems.length} รายการ · ดูรายละเอียด</span></span>
-                          <span className="font-display text-xl text-[#15263d]">{formatBaht(person.amountDueSatang)} <span className="font-sans text-xs text-[#607387]">บาท</span></span>
+                        <button type="button" onClick={() => setSelectedPerson(person.participantId)} className="flex w-full min-w-0 flex-col items-start justify-between gap-3 text-left sm:flex-row sm:items-center">
+                          <span className="min-w-0 [overflow-wrap:anywhere]"><span className="block font-semibold text-[#1f3b55]">{person.name}</span><span className="mt-1 block text-xs text-[#607387]">{person.lineItems.length} รายการ · ดูรายละเอียด</span></span>
+                          <span className="min-w-0 max-w-full font-display text-xl text-[#15263d] [overflow-wrap:anywhere]">{formatBaht(person.amountDueSatang)} <span className="font-sans text-xs text-[#607387]">บาท</span></span>
                         </button>
                         {isEditMode ? <button type="button" onClick={() => void toggleAdminPaid(person.participantId)} className="mt-2 text-xs font-bold text-[#185c74]">{paidState[person.participantId] ? "จ่ายแล้ว · เปลี่ยนเป็นยังไม่จ่าย" : "ยังไม่ได้จ่าย · กดเพื่อเปลี่ยน"}</button> : null}
                       </div>
@@ -383,7 +383,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
               <label className="flex items-center gap-2"><input type="checkbox" disabled={!recoveryCopy.copied} checked={recoveryCopy.acknowledged} onChange={event=>setRecoveryCopy({...recoveryCopy,acknowledged:event.target.checked})}/>ฉันเก็บลิงก์กู้คืนแล้ว</label>
             </section>}
 
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               {step > 0 ? (
                 <Button type="button" variant="ghost" onClick={() => { setError(""); setStep((current) => current - 1); }} className="h-12 rounded-xl text-[#537166] hover:bg-[#eef7eb]">
                   <ArrowLeft size={17} /> ย้อนกลับ
@@ -394,7 +394,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
                   ไปใส่รายการสินค้า <ArrowRight size={17} />
                 </Button>
               ) : step===2 ? (
-                <Button type="button" onClick={saveBill} disabled={saving} className="h-12 rounded-xl bg-[#2f7256] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(47_114_86/22%)] hover:bg-[#265d48]">
+                <Button type="button" onClick={saveBill} disabled={saving} className="h-12 w-full rounded-xl bg-[#2f7256] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(47_114_86/22%)] hover:bg-[#265d48] sm:w-auto">
                   {saving ? "กำลังบันทึก..." : isEditMode ? "บันทึกการแก้ไข" : "ยืนยันและสร้างลิงก์แชร์"} <Check size={17} />
                 </Button>
               ) : null}
