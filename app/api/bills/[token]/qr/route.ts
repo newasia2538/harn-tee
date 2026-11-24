@@ -1,3 +1,5 @@
+// Financial capability responses must always execute against current server state.
+export const dynamic="force-dynamic";
 import {
   readBillByToken,
   readQrByToken,

@@ -3,6 +3,7 @@ import {env} from "cloudflare:workers";
 import {buildBillDocument} from "../../db/document";
 import {createOpaqueToken,hashToken} from "../../lib/harn-tee/tokens";
 import {BILL_COLUMNS,retentionRolloutAt,type StoredBillRow} from "../../db/bill-retention-store";
+import {runBillMaintenance} from "../../db/bill-maintenance";
 import {lookupBillAccess} from "../../db/bill-access";
 import {revokeBillSnapshot,drainBillQrCleanup} from "../../db/bill-deletion";
 import {registerQrAsset,settleQrAsset} from "../../db/bill-qr-assets";
@@ -24,6 +25,11 @@ async function scenario(name:string,input:{id?:string}){
   const rollout=await retentionRolloutAt(b);
   for(const [kind,options,days] of [["unpaid",{},30],["paid",{paid:true},7],["draft",{status:"draft" as const},30],["zero",{paid:true,zero:true},30]] as const){const bill=await seed(kind,{...options,legacy:true});const first=await lookupBillAccess(b,"edit",bill.edit,now);assert(first.kind==="active"&&first.row.expires_at===rollout+days*86400000,"one-time grace "+kind);await lookupBillAccess(b,"edit",bill.edit,now);assert((await row(bill.id)).expires_at===rollout+days*86400000,"grace not renewed");}
   return {assertions:8};
+ }
+ case "automatic":{
+  const bill=await seed(name,{qr:true}),key=`bills/${bill.id}/current.png`;
+  await env.DB!.batch([env.DB!.prepare("UPDATE bills SET expires_at=0 WHERE id=?1").bind(bill.id),env.DB!.prepare("UPDATE bill_retention_policy SET maintenance_next_run_at=0")]);
+  await runBillMaintenance(b,now);assert(!await row(bill.id),"on-entry maintenance removes expired payload");assert(!await env.BUCKET!.head(key),"on-entry maintenance removes expired QR");assert((await lookupBillAccess(b,"share",bill.share,now)).kind==="gone","automatic deletion preserves gone marker");return {assertions:3};
  }
  case "boundary":{
   const bill=await seed(name),expires=Date.now()+60000;await env.DB!.prepare("UPDATE bills SET expires_at=?1 WHERE id=?2").bind(expires,bill.id).run();assert((await lookupBillAccess(b,"edit",bill.edit,expires-1)).kind==="active","before expiry");assert((await lookupBillAccess(b,"share",bill.share,expires)).kind==="gone","exact expiry");return {assertions:2};

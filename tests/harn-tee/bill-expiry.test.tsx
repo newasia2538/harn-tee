@@ -11,3 +11,6 @@ it("switches_days_to_local_countdown_and_stops_at_zero_without_live_announcement
 it("uses_honest_offline_and_unsynchronized_labels",()=>{
  const clock=createRetentionClock(()=>0);const {rerender}=render(<BillExpiry expiresAt={0} serverClock={clock} syncState="offline" deadlineSource="server"/>);expect(screen.getByText("รอตรวจสอบเมื่อเชื่อมต่อ")).toBeTruthy();rerender(<BillExpiry expiresAt={0} serverClock={clock} syncState="pending" deadlineSource="server"/>);expect(screen.getByText("กำลังตรวจสอบวันหมดอายุ")).toBeTruthy();
 });
+it("shows_near_expiry_separately_from_payment_status",()=>{
+ const clock=createRetentionClock(()=>0);clock.sync(1000);render(<BillExpiry expiresAt={3601000} serverClock={clock} syncState="synced" deadlineSource="server"/>);expect(screen.getByText("ใกล้หมดอายุ")).toBeTruthy();
+});

@@ -1,3 +1,5 @@
+// Financial capability responses must always execute against current server state.
+export const dynamic="force-dynamic";
 import {readEditCheckpoint,saveDraftCheckpoint} from "../../../../../db/repository";
 import {sanitizeDraftForm} from "../../../../../lib/harn-tee/draft-state";
 import {draftBody,draftJson,draftResult,requiredRevision,saveDraftRequestSchema,withDraftErrors} from "../../../../../lib/harn-tee/draft-http";

@@ -133,7 +133,7 @@ html {scroll-padding-bottom:var(--harn-bottom-clearance,0px);}
 }
 
 body {
-  min-width: 320px;
+  min-width: 0;
   background:
     radial-gradient(circle at 88% 4%, rgb(242 140 69 / 16%), transparent 26rem),
     radial-gradient(circle at 4% 44%, rgb(24 92 116 / 14%), transparent 28rem),

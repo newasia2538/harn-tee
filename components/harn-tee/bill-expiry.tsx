@@ -8,5 +8,5 @@ export function BillExpiry({expiresAt,serverClock,syncState,deadlineSource}:{exp
  if(syncState==="offline")return <p className="text-xs text-amber-800">รอตรวจสอบเมื่อเชื่อมต่อ</p>;
  const remaining=now===null?null:remainingBillTime(expiresAt,now);
  if(!remaining||remaining.kind==="expired")return <p className="text-xs text-amber-800">กำลังตรวจสอบวันหมดอายุ</p>;
- return <p className={remaining.kind==="countdown"?"text-xs font-semibold text-amber-800":"text-xs text-slate-600"}>{remaining.kind==="days"?`เหลือ ${remaining.days} วัน`:<>หมดอายุใน <span className="font-mono tabular-nums">{remaining.text}</span></>}{deadlineSource==="local"&&<span> · เวลาในเครื่องนี้</span>}</p>;
+ return <p className={remaining.kind==="countdown"?"text-xs font-semibold text-amber-800":"text-xs text-slate-600"}>{remaining.kind==="days"?`เหลือ ${remaining.days} วัน`:<><span className="mr-1">ใกล้หมดอายุ</span>หมดอายุใน <span className="font-mono tabular-nums">{remaining.text}</span></>}{deadlineSource==="local"&&<span> · เวลาในเครื่องนี้</span>}</p>;
 }

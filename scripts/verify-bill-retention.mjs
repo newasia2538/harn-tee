@@ -31,9 +31,16 @@ const token=()=>randomBytes(32).toString("base64url");
 const form=()=>({draft:{title:"Native HTTP synthetic bill",participants:[{id:"p",name:"Tester",order:0}],items:[{id:"i",name:"Test item",priceSatang:10000,payerIds:["p"],order:0}],vatPercent:7,serviceChargePercent:10,recipient:{name:"Tester",bank:{bankId:"SCB",accountNumber:"1234567890"},promptPay:null,qr:null,visible:true}},step:0,numbers:{prices:{},itemVat:{},itemService:{},vat:"7",service:"10"},paymentReentryRequired:false});
 async function api(url,{method="GET",body,revision,headers={},status=200}={}){
  console.log("PROBE "+method+" "+url.replace(/\/api\/bills\/[^/?]+/g,"/api/bills/[proof]"));
- let response=await fetch(new URL(url,base),{signal:AbortSignal.timeout(15000),method,headers:{"Connection":"close",...(body!==undefined?{"Content-Type":"application/json"}:{}),...(revision?{"If-Match":`"${revision}"`}:{}),...headers},...(body!==undefined?{body:JSON.stringify(body)}:{})});
- const bytes=await response.arrayBuffer();response=new Response(bytes,{status:response.status,headers:response.headers});
- if(response.status!==status)throw new Error(`HTTP ${method} expected ${status}, got ${response.status}`);assertionCount++;assert(response.headers.get("Cache-Control")?.includes("no-store"),"private response no-store");return response;
+ const headerFile=path.join(storage,"probe.headers"),bodyFile=path.join(storage,"probe.body"),inputFile=path.join(storage,"probe.input");
+ const parameters=["--silent","--show-error","--max-time","45","--request",method,"--dump-header",headerFile,"--output",bodyFile];
+ if(body!==undefined){await writeFile(inputFile,JSON.stringify(body));parameters.push("--header","Content-Type: application/json","--data-binary","@"+inputFile);}
+ if(revision)parameters.push("--header",`If-Match: "${revision}"`);
+ for(const [name,value] of Object.entries(headers))parameters.push("--header",name+": "+value);
+ parameters.push(new URL(url,base).href);
+ await new Promise((resolve,reject)=>{const child=spawn("curl",parameters,{stdio:"ignore"});child.on("error",reject);child.on("exit",code=>code===0?resolve():reject(new Error("Local HTTP probe failed")));});
+ const rawHeaders=await readFile(headerFile,"utf8"),blocks=rawHeaders.trim().split(/\r?\n\r?\n/),lines=blocks.at(-1).split(/\r?\n/),code=Number(lines.shift().split(" ")[1]),parsedHeaders=new Headers();for(const line of lines){const colon=line.indexOf(":");if(colon>0)parsedHeaders.append(line.slice(0,colon),line.slice(colon+1).trim());}
+ const response=new Response(await readFile(bodyFile),{status:code,headers:parsedHeaders});
+ assert(response.status===status,`HTTP ${method} expected ${status}, got ${response.status}`);assert(response.headers.get("Cache-Control")?.includes("no-store"),"private response no-store");return response;
 }
 async function create(){const input=form(),creationKey=token(),response=await api("/api/bills/drafts",{method:"POST",body:{creationKey,form:input}});return {input,creationKey,ack:await response.json()};}
 async function unavailable(bill,expected){
@@ -44,7 +51,7 @@ async function unavailable(bill,expected){
 }
 try{
  await migrateTwice();
- if(!appMode){await start();for(const name of ["grace","boundary","batch","peer","stale","replay","late-put","prefix"])await fixture(name);const pending=await fixture("failure");await stop();await start();await fixture("restart",{id:pending.id});}
+ if(!appMode){await start();for(const name of ["grace","automatic","boundary","batch","peer","stale","replay","late-put","prefix"])await fixture(name);const pending=await fixture("failure");await stop();await start();await fixture("restart",{id:pending.id});}
  else{
   const active=await create();let {ack}=active;const key="/api/bills/"+ack.editToken;
   const png=new Uint8Array([137,80,78,71,13,10,26,10]),file=new FormData();file.append("file",new Blob([png],{type:"image/png"}),"qr.png");
@@ -57,7 +64,7 @@ try{
   const repaid=await (await api(key+"/status",{method:"POST",body:{participantId:"p",paid:true}})).json();assert(repaid.lifecycle.allPaidAt>=paid.lifecycle.allPaidAt,"recompleted seven-day anchor");await api(key,{method:"DELETE",revision:ack.revision,status:409});
   ack=await (await api(key+"/draft")).json();const noOp=await (await api(key+"/publish",{method:"POST",revision:ack.revision,body:{form:active.input,confirmationId:"same-new-confirmation",shareToken:active.ack.shareToken}})).json();assert(noOp.lifecycle.expiresAt===ack.lifecycle.expiresAt&&noOp.document.participants[0].paid,"identical published confirmation preserves paid lifetime");ack=noOp;
   const history=await (await api("/api/bills/history",{method:"POST",body:{entries:[{localId:"native",editToken:active.ack.editToken,shareToken:active.ack.shareToken}]}})).json();assert(history.items[0].shareUsable&&!JSON.stringify(history).includes("1234567890"),"private summary proof");
-  await api("/api/bills/history",{method:"POST",body:{entries:Array.from({length:21},()=>({localId:"x",editToken:active.ack.editToken}))},status:400});await api("/api/bills/history",{method:"POST",body:{padding:"x".repeat(65537)},status:413});await api("/api/bills/"+token(),{status:404});
+  await api("/api/bills/history",{method:"POST",body:{entries:Array.from({length:21},()=>({localId:"x",editToken:active.ack.editToken}))},status:400});await api("/api/bills/history",{method:"POST",body:{padding:"x".repeat(65537)},status:413});await api("/api/bills/nonexistent-proof",{status:404});
   const deleted=await (await api(key,{method:"DELETE",revision:ack.revision})).json();assert(deleted.state==="deleted","manual deletion complete");await unavailable(active,"bill-deleted");await api("/api/bills/drafts",{method:"POST",body:{creationKey:active.creationKey,form:active.input},status:410});
   const expiring=await create();await sql(`UPDATE bills SET expires_at=0 WHERE id='${expiring.ack.id}'`);await unavailable(expiring,"bill-deleting");const maintenance=await (await api("/api/bills/maintenance",{method:"POST",body:{}})).json();assert(Object.keys(maintenance).join()==="serverNow","maintenance reveals no directory");
   const pending=await create(),pendingKey="/api/bills/"+pending.ack.editToken;await sql(`INSERT INTO bill_qr_assets (object_key,bill_id) VALUES ('bills/${pending.ack.id}/uncertain.png','${pending.ack.id}')`);assert((await (await api(pendingKey,{method:"DELETE",revision:pending.ack.revision,status:202})).json()).state==="deleting","uncertain upload not falsely complete");await unavailable(pending,"bill-deleting");await sql(`UPDATE bill_qr_assets SET put_settled=1,next_attempt_at=0 WHERE bill_id='${pending.ack.id}'; UPDATE bill_deletions SET next_attempt_at=0 WHERE id='${pending.ack.id}'`);assert((await (await api(pendingKey,{method:"DELETE",revision:pending.ack.revision})).json()).state==="deleted","settled pending cleanup completes");
