@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useRef} from "react";
-import Link from "next/link";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import Image from "next/image";
 import {SadReceipt} from "./sad-receipt";
 export function DeletedBillState({state}:{state:"deleting"|"deleted"}){

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import {useRouter} from "next/navigation";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import Image from "next/image";
 import { ArrowLeft, ArrowRight, Check, Clipboard, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +60,6 @@ function BrandMark() {
 }
 
 export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,sessionDependencies }: { initialDocument?: BillDocument;initialSnapshot?:DraftAck; editToken?: string;localId?:string;sessionDependencies?:{store:DraftStore;api:DraftApi} }) {
-  const router=useRouter();
   const session=useDraftSession({initialDocument,initialSnapshot,editToken,localId,dependencies:sessionDependencies});
   const api=useRef(sessionDependencies?.api??createDraftApi()).current;
   const draft=session.form.draft,step=session.form.step,qrFile=session.qr.kind==="local"?session.qr.file:null;
@@ -93,7 +91,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
   const setStep=(updater:number|((step:number)=>number))=>session.setForm(form=>({...form,step:Math.max(0,Math.min(2,typeof updater==="function"?updater(form.step):updater)) as 0|1|2}));
   const onNumericChange=(field:NumericField,raw:string)=>{setSaved(false);setRecoveryCopy(null);session.setForm(form=>setNumericInput(form,field,raw));};
   const report=(caught:unknown)=>setError(caught instanceof DraftApiError?(caught.status===409?"ข้อมูลเปลี่ยนจากอีกหน้าหรืออีกเครื่อง กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก":"เชื่อมต่อไม่สำเร็จ กรุณาลองอีกครั้ง"):caught instanceof Error?caught.message:"บันทึกไม่สำเร็จ กรุณาลองใหม่");
-  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken||localId)router.push("/");};
+  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken||localId)window.location.assign("/");};
   const draftRef = useRef(draft);
   const actionsRef=useRef({setStep,setDraft});
   useEffect(() => {

@@ -6,7 +6,7 @@ import {BillExpiry} from "@/components/harn-tee/bill-expiry";
 import {billServerClock} from "@/lib/harn-tee/bill-clock";
 import {broadcastBillEvent,subscribeBillEvents} from "@/lib/harn-tee/bill-events";
 import type {LifecycleSnapshot} from "@/lib/harn-tee/bill-lifecycle";
-import Link from "next/link";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import Image from "next/image";
 import { Check, ChevronRight, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";

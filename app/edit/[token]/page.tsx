@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import { HarnTeeApp } from "../../harn-tee-client";
 import type {DraftAck} from "@/lib/harn-tee/draft-state";
 import {DeletedBillState} from "@/components/harn-tee/deleted-bill-state";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import { Check, ExternalLink, LockKeyhole, Share2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

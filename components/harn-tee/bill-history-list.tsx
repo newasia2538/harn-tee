@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import {Button} from "@/components/ui/button";
 import {formatBaht} from "@/lib/harn-tee/money";
 import {useBillHistory} from "@/lib/harn-tee/bill-history-provider";

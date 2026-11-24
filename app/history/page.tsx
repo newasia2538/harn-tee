@@ -1,6 +1,6 @@
 "use client";
 import {useState} from "react";
-import Link from "next/link";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import {BillHistoryList} from "@/components/harn-tee/bill-history-list";
 import {Button} from "@/components/ui/button";
 import {AlertDialog,AlertDialogContent,AlertDialogHeader,AlertDialogTitle,AlertDialogDescription,AlertDialogFooter,AlertDialogCancel,AlertDialogAction} from "@/components/ui/alert-dialog";
