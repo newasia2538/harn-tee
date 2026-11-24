@@ -13,6 +13,7 @@ import {
   RequestBodyTooLargeError,
 } from "../../../../lib/harn-tee/request-body";
 import type { BillDocument, BillDraft, BillPatch } from "../../../../lib/harn-tee/types";
+import {draftJson,requiredRevision,withDraftErrors} from "../../../../lib/harn-tee/draft-http";
 
 const MAX_JSON_BYTES = 1024 * 1024;
 
@@ -153,16 +154,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
-  const { token } = await context.params;
-  try {
-    const deleted = await deleteBillByEditToken(token);
-    if (!deleted) return json({ error: "ลิงก์แก้ไขไม่ถูกต้อง" }, { status: 404 });
-    return json({ deleted: true });
-  } catch (error) {
-    console.error("Failed to delete bill", error);
-    return json({ error: "ลบบิลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
-  }
+  return withDraftErrors(async()=>{
+    const {token}=await context.params,revision=requiredRevision(request),result=await deleteBillByEditToken(token,revision);
+    return result?draftJson(result,result.state==="deleted"?200:202):draftJson({error:"ลิงก์แก้ไขไม่ถูกต้อง"},404);
+  });
 }

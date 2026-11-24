@@ -15,9 +15,11 @@ import { applyBillPatch, buildBillDocument } from "./document";
 import { draftEnvelope, plainBill, recoverableForm, revisionOf, type BillEnvelope } from "./draft-document";
 import { emptyNumbers, normalizeFormNumbers, sanitizeDraftForm, validateFormForPublication, type DraftAck, type DraftForm, type SafeDraftForm, type WriteResult } from "../lib/harn-tee/draft-state";
 
-import {rowLifecycle,type StoredBillRow} from "./bill-retention-store";
+import {BILL_COLUMNS,rowLifecycle,type StoredBillRow} from "./bill-retention-store";
 import {BillUnavailableError,lookupBillAccess} from "./bill-access";
-import {advanceLifecycle,paymentProgress,sameDraftActivity,samePublishedContent,type LifecycleSnapshot} from "../lib/harn-tee/bill-lifecycle";
+import {advanceLifecycle,paymentProgress,sameDraftActivity,samePublishedContent,type LifecycleSnapshot,type DeleteResult} from "../lib/harn-tee/bill-lifecycle";
+import {drainBillQrCleanup,revokeBillSnapshot} from "./bill-deletion";
+import {drainQueuedQrAssets,qrAttachmentStatements,queueQrCleanup,registerQrAsset,settleQrAsset} from "./bill-qr-assets";
 
 function database() {
   if (!env.DB) {
@@ -41,7 +43,7 @@ async function findByToken(kind: "share" | "edit", rawToken: string) {
 type FoundBill=NonNullable<Awaited<ReturnType<typeof findByToken>>>;
 export class BillConflictError extends Error {constructor(public code="revision-conflict"){super(code);}}
 export class BillValidationError extends Error {constructor(public errors:string[]){super("invalid-bill");}}
-async function conditionalWrite(found:FoundBill,envelope:BillEnvelope,shareDigest=found.row.share_token_digest,draftOnly=false){
+async function conditionalWrite(found:FoundBill,envelope:BillEnvelope,shareDigest=found.row.share_token_digest,draftOnly=false,qrAsset?:{objectKey:string;previousKey?:string}){
   const document=plainBill(envelope),now=Date.now();
   const paidChanged=JSON.stringify(found.document.participants.map(p=>[p.id,p.paid]))!==JSON.stringify(document.participants.map(p=>[p.id,p.paid]));
   const contentChanged=found.document.status==="draft"&&document.status==="draft"
@@ -49,8 +51,9 @@ async function conditionalWrite(found:FoundBill,envelope:BillEnvelope,shareDiges
     :!samePublishedContent(found.document,document);
   const meaningful=contentChanged||paidChanged||found.document.status!==document.status||JSON.stringify(found.document.recipient.qr)!==JSON.stringify(document.recipient.qr)||found.envelope.qrSelectionId!==envelope.qrSelectionId;
   const lifecycle=advanceLifecycle(rowLifecycle(found.row),found.document,document,now,meaningful),payload=JSON.stringify(envelope);
-  const result=await database().prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2, share_token_digest = ?3, last_activity_at = ?4, all_paid_at = ?5, expires_at = ?6, retention_version = retention_version + 1 WHERE id = ?7 AND payload_json = ?8 AND share_token_digest = ?9 AND retention_version = ?10 AND expires_at > ?11"+(draftOnly?" AND json_extract(payload_json, '$.status') = 'draft'":""))
-    .bind(payload,envelope.updatedAt,shareDigest,lifecycle.lastActivityAt,lifecycle.allPaidAt,lifecycle.expiresAt,found.row.id,found.row.payload_json,found.row.share_token_digest,found.row.retention_version,now).run();
+  const write=database().prepare("UPDATE bills SET payload_json = ?1, updated_at = ?2, share_token_digest = ?3, last_activity_at = ?4, all_paid_at = ?5, expires_at = ?6, retention_version = retention_version + 1 WHERE id = ?7 AND payload_json = ?8 AND share_token_digest = ?9 AND retention_version = ?10 AND expires_at > ?11"+(draftOnly?" AND json_extract(payload_json, '$.status') = 'draft'":"")+(qrAsset?" AND EXISTS (SELECT 1 FROM bill_qr_assets WHERE object_key = ?12 AND put_settled = 1 AND cleanup_requested = 0)":""))
+    .bind(payload,envelope.updatedAt,shareDigest,lifecycle.lastActivityAt,lifecycle.allPaidAt,lifecycle.expiresAt,found.row.id,found.row.payload_json,found.row.share_token_digest,found.row.retention_version,now,...(qrAsset?[qrAsset.objectKey]:[]));
+  const result=qrAsset?(await database().batch([write,...qrAttachmentStatements({DB:database(),BUCKET:env.BUCKET},{billId:found.row.id,...qrAsset,payloadJson:payload,retentionVersion:found.row.retention_version+1})]))[0]:await write.run();
   if(result.meta.changes!==1)return null;
   const row:StoredBillRow={...found.row,payload_json:payload,updated_at:envelope.updatedAt,share_token_digest:shareDigest,last_activity_at:lifecycle.lastActivityAt,all_paid_at:lifecycle.allPaidAt,expires_at:lifecycle.expiresAt,retention_version:found.row.retention_version+1};
   return {row,document,envelope};
@@ -202,19 +205,20 @@ export async function setParticipantPaid(
   return revision?acknowledgement(committed):committed.document;
 }
 
-export async function deleteBillByEditToken(rawToken: string) {
-  const found = await findByToken("edit", rawToken);
-  if (!found) return false;
-  const qrObjectKey = found.document.recipient.qr?.objectKey;
-  if (qrObjectKey) {
-    if (!env.BUCKET) throw new Error("R2 binding BUCKET is unavailable");
-    await env.BUCKET.delete(qrObjectKey);
+export async function deleteBillByEditToken(rawToken:string,revision:string):Promise<DeleteResult|null>{
+  const bindings={DB:database(),BUCKET:env.BUCKET},digest=await hashToken(rawToken);
+  const access=await lookupBillAccess(bindings,"edit",rawToken,Date.now());
+  if(access.kind==="missing")return null;
+  if(access.kind==="gone"){
+    const marker=await database().prepare("SELECT id FROM bill_deletions WHERE edit_token_digest = ?1").bind(digest).first<{id:string}>();
+    if(marker)return {state:await drainBillQrCleanup(bindings,marker.id,Date.now(),20),serverNow:Date.now()};
   }
-  await database()
-    .prepare("DELETE FROM bills WHERE id = ?1")
-    .bind(found.row.id)
-    .run();
-  return true;
+  const row=access.kind==="active"?access.row:await database().prepare("SELECT "+BILL_COLUMNS+" FROM bills WHERE edit_token_digest = ?1").bind(digest).first<StoredBillRow>();
+  if(!row)throw new BillConflictError();
+  const currentRevision=await revisionOf(row.payload_json,row.share_token_digest,row.retention_version),now=Date.now(),reason=rowLifecycle(row).expiresAt<=now?"expired":"manual";
+  if(reason==="manual"&&currentRevision!==revision)throw new BillConflictError();
+  if(await revokeBillSnapshot(bindings,row,reason,now)!=="revoked")throw new BillConflictError();
+  return {state:await drainBillQrCleanup(bindings,row.id,now,20),serverNow:Date.now()};
 }
 
 type QrSaveOptions={revision:string;mode:"draft"|"confirm";selectionId?:string};
@@ -233,9 +237,14 @@ export async function saveQrForEditToken(
 
   const extension = file.type.split("/")[1] ?? "png";
   const objectKey = "bills/" + found.row.id + "/" + crypto.randomUUID() + "." + extension;
-  await env.BUCKET.put(objectKey, await file.arrayBuffer(), {
-    httpMetadata: { contentType: file.type },
-  });
+  const bindings={DB:database(),BUCKET:env.BUCKET};
+  if(!await registerQrAsset(bindings,found.row,objectKey,options?.selectionId,Date.now()))throw new BillConflictError();
+  try{
+    await env.BUCKET.put(objectKey,await file.arrayBuffer(),{httpMetadata:{contentType:file.type}});
+    await settleQrAsset(bindings,objectKey,"stored",Date.now());
+  }catch(error){
+    await settleQrAsset(bindings,objectKey,"uncertain",Date.now());await queueQrCleanup(bindings,objectKey,Date.now());throw error;
+  }
 
   const previousKey = found.document.recipient.qr?.objectKey;
 
@@ -251,11 +260,11 @@ export async function saveQrForEditToken(
   };
 
   const envelope:BillEnvelope={...(found.document.status==="draft"?draftEnvelope(recoverableForm(found.envelope),document):{...document,...(found.envelope.lastConfirmationId?{lastConfirmationId:found.envelope.lastConfirmationId}:{})}),...(options?.selectionId?{qrSelectionId:options.selectionId}:{})};
-  const committed=await conditionalWrite(found,envelope,undefined,found.document.status==="draft");
+  const committed=await conditionalWrite(found,envelope,undefined,found.document.status==="draft",{objectKey,previousKey});
   if(!committed){
-    await env.BUCKET.delete(objectKey).catch(()=>undefined);throw new BillConflictError();
+    await queueQrCleanup(bindings,objectKey,Date.now());await drainQueuedQrAssets(bindings,Date.now(),1,found.row.id);throw new BillConflictError();
   }
-  if(previousKey)await env.BUCKET.delete(previousKey).catch(()=>{console.warn("qr-cleanup-failed");});
+  if(previousKey)await drainQueuedQrAssets(bindings,Date.now(),1,found.row.id);
   return options?acknowledgement(committed):committed.document;
 }
 
