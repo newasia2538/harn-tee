@@ -1,6 +1,6 @@
-# Bill history, retention and deletion — proposed design
+# Bill history, retention and deletion — approved design
 
-Date: 2026-11-24, Asia/Bangkok. Status: proposed for user review; no application implementation or production deletion is authorized by this document alone.
+Date: 2026-11-24, Asia/Bangkok. Status: approved by the user, including all recorded proposals and the compact live-total addition. Prepare and review the implementation plans next, preserving the user's Native execution choice and existing checkout/branch preference. No production rollout or deletion has been performed as part of this design work.
 
 ## Intent and confirmed decisions
 
@@ -96,7 +96,7 @@ Keep this bar visible at the bottom of the available screen throughout the item-
 
 Reuse the current live-total calculator and provisional/unassigned-item notices. The main amount is the receipt total; any collection total after rounding remains separately labeled. Preserve both supported fee scopes and VAT calculation formulas. This layout change must not change money calculations, fee settings, draft persistence or the established navigation/validation rules. Keep the breakdown toggle keyboard accessible and expose its expanded state to assistive technology.
 
-Reference mockup (conversation-owned, not a production asset): `/Users/11356979/.codex/visualizations/2026/09/14/01a09f29-e267-7b11-87a8-a6ce1f8f1c1a/harn-tee-bottom-total-options.html`, variant `ยอดพร้อมปุ่มถัดไป`. The user's explicit choice approves this UI addition; the overall history/retention design remains proposed for review.
+Reference mockup (conversation-owned, not a production asset): `/Users/11356979/.codex/visualizations/2026/09/14/01a09f29-e267-7b11-87a8-a6ce1f8f1c1a/harn-tee-bottom-total-options.html`, variant `ยอดพร้อมปุ่มถัดไป`. The user approved this UI explicitly, then approved the complete design on 2026-11-24.
 
 ## Countdown and refresh behavior
 
@@ -167,7 +167,7 @@ Keep domain decisions in a shared bill lifecycle module and keep history persist
 
 The detailed implementation plan will name exact interfaces, endpoints, transaction predicates, migration/backfill commands and regression fixtures after this design is approved. SQL/R2 concurrency proofs must use the real local bindings as well as unit tests.
 
-## Existing bills and rollout — proposals for review
+## Existing bills and rollout
 
 Do not retroactively erase old production bills immediately when this feature ships. At one deployment migration timestamp, grant existing incomplete/unpaid/partially paid server bills 30 days, and existing fully paid server bills 7 days. Initialize these deadlines once; a later visit does not grant another grace period. New meaningful changes then follow the normal rules. Historical `updatedAt` still remains available for display.
 
@@ -191,9 +191,9 @@ Stage and verify the additive migration against disposable local D1/R2/IndexedDB
 10. Run focused regressions, the full existing test suite, nonincremental typecheck and production build. Publish only after required checks or a new explicit release instruction with any verification limits disclosed.
 11. On the item-entry step, the compact bottom total and next action stay visible while scrolling a long item list. Editing prices/fees updates the same receipt total as before; tapping the total opens/closes the breakdown. Verify narrow screens, long amounts, expanded notices, text zoom and the mobile keyboard without covered inputs/actions or horizontal overflow. Preserve separately labeled rounding totals and existing validation/navigation behavior.
 
-## Builder choices versus user review
+## Approved proposals and remaining builder choices
 
-Confirmed product rules above remain binding. The following are design proposals, not claims of prior user approval: count only positive-due payers; no lifetime extension/payment reset for reads/no-op saves; preserve minimal non-content deletion markers; one-time 30-/7-day rollout grace; preserve only discoverable existing local history; conditional deletion and honest pending-cleanup/offline states; disable unavailable share actions while retaining owner access rather than adding token recovery/rotation.
+Confirmed product rules above remain binding. The user's approval of the full design also accepts the recorded proposals: count only positive-due payers; no lifetime extension/payment reset for reads/no-op saves; preserve minimal non-content deletion markers; one-time 30-/7-day rollout grace; preserve only discoverable existing local history; conditional deletion and honest pending-cleanup/offline states; disable unavailable share actions while retaining owner access rather than adding token recovery/rotation. Earlier paragraphs labeled as proposals record their origin; they are now approved.
 
 The builder may choose module/file split, exact CSS spacing around the approved layout, bounded batch sizes, retry backoff, and the internal cleanup/upload coordination mechanism, provided the stated privacy, race and success criteria are proved. No new login/cron service, undo/recycle bin, cross-device history directory, payment verification or notification system is included.
 
@@ -204,4 +204,13 @@ A fresh read-only builder check on 2026-11-24 raised two planning ambiguities, r
 - Identical publication versus the current unconditional paid-flag reset: preserve flags/deadline for a real no-op, retain resets for meaningful edits. This follows the already-stated no-op retention rule and avoids making a fully paid bill appear unpaid solely because its owner clicked save again.
 - A creator's stale/missing share capability after another device publishes: expose an honest unavailable-share state with owner edit/preview still usable. Do not expand scope into server-side raw token storage or published-link rotation.
 
-No other product questions remain from this check. Approval of this proposed design is the next step before the detailed implementation plan; prior Native execution preference is preserved.
+No other product questions remain from this check. The user approved the complete design on 2026-11-24. Next, write and review the implementation plans; the prior Native execution preference is preserved.
+
+## Detailed implementation plans
+
+Prepared for plan review after design approval, in execution order:
+
+1. `docs/superpowers/plans/2026-11-24-compact-live-total-bar.md` — independent compact bottom-bar UI.
+2. `docs/superpowers/plans/2026-11-24-bill-history-retention.md` — integrated lifecycle, deletion, QR cleanup, local history and verification.
+
+The plans are documentation only at this stage; product implementation and production rollout have not started.
