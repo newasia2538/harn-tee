@@ -17,6 +17,7 @@ The user has confirmed:
 - At least 24 hours remaining: days. Below 24 hours: live `HH:mm:ss` countdown and `ใกล้หมดอายุ` indication.
 - Deleted-link design: `การ์ดอธิบายชัดเจน`, sad receipt mascot (latest size preference: 150px), and a bottom-of-screen home action. The explicit written choice takes precedence over later carousel-navigation events.
 - Exact description: `ขออภัย ท่านไม่สามารถดูรายละเอียดหรือแก้ไขบิลนี้ได้อีก`.
+- Item-entry live totals: the user selected the compact `ยอดพร้อมปุ่มถัดไป` mockup, with a 22px total, a persistent bottom bar, an expandable fee breakdown and the `ตรวจสอบบิล` action beside the total.
 
 ## Approach and constraints
 
@@ -86,6 +87,16 @@ Share-link availability is separate from bill availability. Validate the locally
 The history ledger stores only identifiers/capabilities needed to reopen/manage the bill, title, total, counts/status, revision and lifecycle timestamps. It does not duplicate item details, account numbers, phone values, national IDs or QR contents. Existing working drafts may continue storing their approved safe fields/selected QR; typed PromptPay national IDs remain excluded and require re-entry after recovery.
 
 Capabilities remain private to this browser and are never included in analytics, logs, unrelated app calls or history display text. The page keeps the existing shared-device privacy notice. Clearing browser storage removes the local history index; a retained edit link still permits access to a non-deleted bill, but there is no global history discovery without login.
+
+## Item-entry live total bar — approved UI
+
+The user selected `ยอดพร้อมปุ่มถัดไป` after reviewing three interactive alternatives and requested smaller type and a shorter bar. The selected compact revision uses a 22px total, an 11px caption, a 13px action label and a minimum 44px primary button. It combines the latest total and `ตรวจสอบบิล` in one bottom row; tapping the total toggles the item subtotal, Service charge and VAT breakdown above that row. The other alternatives were a floating total with the next action in page flow, and a permanently expanded breakdown with a full-width next action.
+
+Keep this bar visible at the bottom of the available screen throughout the item-entry step. Reserve space for its actual height, including expanded details and validation notices, so it never covers the last field, fee/payment controls or other actions. Allow long amounts, narrow screens and enlarged text to reflow rather than enforcing a fixed height. Keep touch targets usable, retain safe-area spacing, and ensure focused inputs remain reachable when the mobile keyboard is open. Exact positioning and keyboard handling are builder choices to verify on mobile; the contained mockup is a visual reference, not proof of physical-device behavior.
+
+Reuse the current live-total calculator and provisional/unassigned-item notices. The main amount is the receipt total; any collection total after rounding remains separately labeled. Preserve both supported fee scopes and VAT calculation formulas. This layout change must not change money calculations, fee settings, draft persistence or the established navigation/validation rules. Keep the breakdown toggle keyboard accessible and expose its expanded state to assistive technology.
+
+Reference mockup (conversation-owned, not a production asset): `/Users/11356979/.codex/visualizations/2026/09/14/01a09f29-e267-7b11-87a8-a6ce1f8f1c1a/harn-tee-bottom-total-options.html`, variant `ยอดพร้อมปุ่มถัดไป`. The user's explicit choice approves this UI addition; the overall history/retention design remains proposed for review.
 
 ## Countdown and refresh behavior
 
@@ -178,6 +189,7 @@ Stage and verify the additive migration against disposable local D1/R2/IndexedDB
 8. Migrating existing records does not cause immediate unannounced deletion, does not reset deadlines on future visits, and does not erase existing recovery data. Known old receipts can be indexed without guessing unknown bill links.
 9. Native browser proof of creator history, another-browser edit/payment change, manual/expiry deletion and both deleted-link pages; desktop plus 360×800 without overlap/horizontal overflow, including text zoom and long Thai titles.
 10. Run focused regressions, the full existing test suite, nonincremental typecheck and production build. Publish only after required checks or a new explicit release instruction with any verification limits disclosed.
+11. On the item-entry step, the compact bottom total and next action stay visible while scrolling a long item list. Editing prices/fees updates the same receipt total as before; tapping the total opens/closes the breakdown. Verify narrow screens, long amounts, expanded notices, text zoom and the mobile keyboard without covered inputs/actions or horizontal overflow. Preserve separately labeled rounding totals and existing validation/navigation behavior.
 
 ## Builder choices versus user review
 
