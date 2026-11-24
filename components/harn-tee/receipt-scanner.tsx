@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Camera, Check, Plus, Trash2 } from "lucide-react";
+import { Camera, Check, ImagePlus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,8 @@ export function ReceiptScanner({
   participants: readonly ParticipantDraft[];
   onImport: (items: ReceiptOcrItem[]) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const nextManualId = useRef(0);
   const [state, setState] = useState<ScannerState>("idle");
@@ -56,7 +57,8 @@ export function ReceiptScanner({
   });
 
   const resetInput = () => {
-    if (inputRef.current) inputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
   };
 
   const leaveToIdle = (disposeWorker: boolean) => {
@@ -152,27 +154,44 @@ export function ReceiptScanner({
   if (state === "idle") {
     return (
       <Card className="border-[#d6e5dc] bg-[#f9fcf8] shadow-none">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+        <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
             <p className="font-semibold text-[#315f50]">เติมรายการจากรูปใบเสร็จ</p>
             <p className="mt-1 text-sm text-[#71867b]">
               ระบบอ่านรายการให้ แล้วตรวจสอบก่อนใช้ · จะแบ่งให้ {participants.length} คน
             </p>
           </div>
-          <div className="shrink-0">
+          <div className="grid gap-2 sm:grid-cols-2 lg:shrink-0">
             <Button
               type="button"
-              onClick={() => inputRef.current?.click()}
-              className="h-11 w-full rounded-xl bg-[#2e7255] text-white hover:bg-[#245d46] sm:w-auto"
+              onClick={() => cameraInputRef.current?.click()}
+              className="h-11 w-full rounded-xl bg-[#2e7255] text-white hover:bg-[#245d46]"
             >
               <Camera size={17} />
               ถ่ายรูปใบเสร็จ
             </Button>
             <input
-              ref={inputRef}
+              ref={cameraInputRef}
               type="file"
               accept="image/*"
               capture="environment"
+              aria-label="ถ่ายรูปใบเสร็จด้วยกล้อง"
+              onChange={handleFileChange}
+              className="sr-only"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => galleryInputRef.current?.click()}
+              className="h-11 w-full rounded-xl border-[#c6d8cc] text-[#315f50] hover:bg-[#eef6ef]"
+            >
+              <ImagePlus size={17} />
+              เลือกรูปจากแกลเลอรี
+            </Button>
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
               aria-label="เลือกรูปใบเสร็จ"
               onChange={handleFileChange}
               className="sr-only"

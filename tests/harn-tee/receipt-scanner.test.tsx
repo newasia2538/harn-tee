@@ -66,31 +66,45 @@ describe("ReceiptScanner", () => {
     expect(await screen.findByText(/ต่างจากยอดสินค้าในใบเสร็จ/)).toBeTruthy();
     expect(screen.getByDisplayValue("150.00")).toBeTruthy();
   });
-  it("renders an accessible camera/file input in idle state", () => {
+  it("opens distinct camera and gallery inputs without requesting capture for gallery images", async () => {
+    const user = userEvent.setup();
     renderScanner();
 
-    expect(screen.getByRole("button", { name: "ถ่ายรูปใบเสร็จ" })).toBeTruthy();
-    const input = screen.getByLabelText("เลือกรูปใบเสร็จ") as HTMLInputElement;
-    expect(input.accept).toBe("image/*");
-    expect(input.getAttribute("capture")).toBe("environment");
+    const camera = screen.getByLabelText("ถ่ายรูปใบเสร็จด้วยกล้อง") as HTMLInputElement;
+    const gallery = screen.getByLabelText("เลือกรูปใบเสร็จ") as HTMLInputElement;
+    expect(camera.accept).toBe("image/*");
+    expect(camera.getAttribute("capture")).toBe("environment");
+    expect(gallery.accept).toBe("image/*");
+    expect(gallery.hasAttribute("capture")).toBe(false);
+    const opened: string[] = [];
+    camera.addEventListener("click", () => opened.push("camera"));
+    gallery.addEventListener("click", () => opened.push("gallery"));
+    await user.click(screen.getByRole("button", { name: "ถ่ายรูปใบเสร็จ" }));
+    await user.click(screen.getByRole("button", { name: "เลือกรูปจากแกลเลอรี" }));
+    expect(opened).toEqual(["camera", "gallery"]);
   });
 
-  it("shows reading progress and editable review rows after selecting an image", async () => {
+  it.each(["ถ่ายรูปใบเสร็จด้วยกล้อง", "เลือกรูปใบเสร็จ"])("reviews and imports an image selected through %s", async (inputLabel) => {
     mocks.recognizeReceipt.mockImplementation(async (_file, options) => {
       options?.onProgress?.({ phase: "recognizing", progress: 0.5, message: "กำลังอ่าน" });
       return result([{ text: "ข้าว 25", confidence: 90 }]);
     });
     const user = userEvent.setup();
-    renderScanner();
+    const { onImport } = renderScanner();
 
     await user.upload(
-      screen.getByLabelText("เลือกรูปใบเสร็จ"),
+      screen.getByLabelText(inputLabel),
       new File(["receipt"], "receipt.jpg", { type: "image/jpeg" }),
     );
 
     expect(await screen.findByDisplayValue("ข้าว")).toBeTruthy();
     expect(screen.getByDisplayValue("25.00")).toBeTruthy();
     expect(screen.getByRole("status")).toBeTruthy();
+    expect(onImport).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "เพิ่มเข้ารายการสินค้า" }));
+    expect(onImport).toHaveBeenCalledWith([expect.objectContaining({ name: "ข้าว", priceSatang: 2500, status: "ready" })]);
+    expect(screen.getByRole("button", { name: "ถ่ายรูปใบเสร็จ" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "เลือกรูปจากแกลเลอรี" })).toBeTruthy();
   });
 
   it("requires fixing review rows before import", async () => {
