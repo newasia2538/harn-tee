@@ -1,3 +1,5 @@
+import {billServerClock} from "./bill-clock";
+import type {LifecycleSnapshot} from "./bill-lifecycle";
 import {formInputSchema,sanitizeDraftForm,type DraftAck,type DraftForm,type SafeDraftForm} from "./draft-state";
 export class DraftApiError extends Error {
   constructor(public status:number,public code:string){super(code);}
@@ -7,7 +9,7 @@ export interface DraftApi {
   load(token:string,signal?:AbortSignal):Promise<DraftAck>;
   save(token:string,revision:string,form:SafeDraftForm,signal?:AbortSignal):Promise<DraftAck>;
   uploadQr(token:string,revision:string,file:File,mode:"draft"|"confirm",signal?:AbortSignal,selectionId?:string):Promise<DraftAck>;
-  issueShare(token:string,revision:string,signal?:AbortSignal):Promise<{shareToken:string;revision:string}>;
+  issueShare(token:string,revision:string,signal?:AbortSignal):Promise<{shareToken:string;revision:string;lifecycle?:LifecycleSnapshot;serverNow?:number}>;
   publish(token:string,revision:string,form:DraftForm,confirmationId:string,shareToken?:string,signal?:AbortSignal):Promise<DraftAck>;
 }
 function draftWire(form:DraftForm){const safe=sanitizeDraftForm(form);return {...safe,draft:{...safe.draft,recipient:safe.draft.recipient?{...safe.draft.recipient,qr:null}:undefined}};}
@@ -20,10 +22,11 @@ export function createDraftApi(fetcher:typeof fetch=globalThis.fetch):DraftApi {
     let body:unknown;try{body=await response.json();}catch{throw new DraftApiError(response.status,"invalid-response");}
     if(!response.ok){
       const code=body&&typeof body==="object"&&"code" in body?body.code:null;
-      const safe=typeof code==="string"&&["revision-conflict","not-draft","share-proof-stale","precondition-required","invalid-precondition","invalid-input"].includes(code)?code:response.status===404?"not-found":response.status===400?"invalid-input":"server-error";
+      const safe=typeof code==="string"&&["bill-deleting","bill-deleted","revision-conflict","not-draft","share-proof-stale","precondition-required","invalid-precondition","invalid-input"].includes(code)?code:response.status===404?"not-found":response.status===400?"invalid-input":"server-error";
       throw new DraftApiError(response.status,safe);
     }
     if(!body||typeof body!=="object"||!("revision" in body)||typeof body.revision!=="string")throw new DraftApiError(500,"invalid-response");
+    if("serverNow" in body&&typeof body.serverNow==="number")billServerClock.sync(body.serverNow);
     return body as T;
   }
   const json=(method:string,body:unknown,revision?:string,signal?:AbortSignal):RequestInit=>({method,headers:{"Content-Type":"application/json",...(revision?{"If-Match":`"${revision}"`}:{})},body:JSON.stringify(body),signal});

@@ -189,7 +189,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
         setPaidState(Object.fromEntries(draft.participants.map((person) => [person.id, false])));
         setSaved(true);
       } else {
-        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
+        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,lifecycle:result.remote.lifecycle,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
       }
       setRecoveryCopy(null);
     } catch (caught) {

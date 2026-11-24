@@ -19,13 +19,13 @@ export async function enrollCheckpoint(tx:IDBTransaction,input:Checkpoint,previo
  const before=previous?.kind==="working"?previous:undefined;
  const meaningful=record.kind==="working"&&(!before||!sameDraftActivity(before.form,record.form)||JSON.stringify(before.qr)!==JSON.stringify(record.qr));
  const now=Date.now(),local=!(billId||remote);
- let lifecycle=record.lifecycle??history?.lifecycle;
+ let lifecycle=remote?.lifecycle??record.lifecycle??history?.lifecycle;
  if(local){if(!lifecycle||meaningful&&!legacy)lifecycle=initialLifecycle(now);}
  else if(!lifecycle)lifecycle={lastActivityAt:0,allPaidAt:null,expiresAt:0,paymentStatus:record.kind==="complete"||remote?.status==="published"?"unpaid":"draft",paidCount:0,payerCount:0};
  lifecycle??=initialLifecycle(now);
  const form=record.kind==="working"?record.form:before?.form;
  const links=record.kind==="complete"?receiptTokens(record):{};
- const entry:ActiveHistoryEntry={kind:"bill",schemaVersion:1,localId:history?.localId??record.localId,recordIds:[...new Set([...(history?.recordIds??[]),record.localId])],billId:billId??history?.billId,editToken:remote?.editToken??links.editToken??history?.editToken,shareToken:remote?.shareToken??links.shareToken??history?.shareToken,revision:remote?.revision??history?.revision,title:form?.draft.title??history?.title??"",totalSatang:form?selectLiveTotals(form).calculation.grossTotalSatang:history?.totalSatang??0,lifecycle,deadlineSource:local?"local":"server",localVersion:(history?.localVersion??-1)+1,syncState:local?"synced":record.lifecycle?"synced":"pending",shareUsable:history?.shareUsable??false};
+ const entry:ActiveHistoryEntry={kind:"bill",schemaVersion:1,localId:history?.localId??record.localId,recordIds:[...new Set([...(history?.recordIds??[]),record.localId])],billId:billId??history?.billId,editToken:remote?.editToken??links.editToken??history?.editToken,shareToken:remote?.shareToken??links.shareToken??history?.shareToken,revision:remote?.revision??history?.revision,title:form?.draft.title??history?.title??"",totalSatang:form?selectLiveTotals(form).calculation.grossTotalSatang:history?.totalSatang??0,lifecycle,deadlineSource:local?"local":"server",localVersion:(history?.localVersion??-1)+1,syncState:local?"synced":meaningful&&remote?.revision===history?.revision?"pending":remote?.lifecycle||record.lifecycle?"synced":"pending",shareUsable:history?.shareUsable??false};
  await request(tx.objectStore("history").put(entry,entry.localId));await request(tx.objectStore("aliases").put({localId:record.localId},"local:"+record.localId));
  return {...record,lifecycle};
 }

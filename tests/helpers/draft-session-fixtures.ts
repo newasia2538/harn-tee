@@ -21,6 +21,7 @@ export function sessionFixtures(initial:Checkpoint|null=null){
     bindEditContext:vi.fn(async(_id,_token,version)=>{if(!stored||stored.kind!=="working"||stored.localVersion!==version)throw new Error("storage-conflict");stored={...stored,localVersion:version+1};return stored;}),
     writeCompletion:vi.fn(async(record,version)=>{stored={...record,localVersion:version+1};return stored as CompletionCheckpoint;}),
     startNew:vi.fn(async()=>{stored={...checkpoint(),localId:crypto.randomUUID(),form:sanitizeDraftForm(makeBlankForm()),formSequence:0};return stored as WorkingCheckpoint;}),
+    discard:vi.fn(),
     close:vi.fn(),
   };
   let ack:DraftAck=withLifecycle({id:"b1",document:buildBillDocument(draftFixture().draft),form:safeFixture(),revision:"r0"});

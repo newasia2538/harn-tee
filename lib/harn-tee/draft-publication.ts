@@ -10,7 +10,7 @@ export class RecoveryCopyRequiredError extends Error{
 export async function confirmDraftPublication(context:SubmissionContext,io:{api:DraftApi;rememberRemote(remote:RemoteIdentity):Promise<void>},options:{recoveryCopyAcknowledged?:boolean}={}){
   const {api}=io;let remote={...context.remote};
   let copiedShare=options.recoveryCopyAcknowledged?remote.shareToken:undefined;
-  const result=(ack:Awaited<ReturnType<DraftApi["load"]>>)=>({remote:{...remote,revision:ack.revision,status:"published" as const},document:ack.document});
+  const result=(ack:Awaited<ReturnType<DraftApi["load"]>>)=>({remote:{...remote,revision:ack.revision,lifecycle:ack.lifecycle,status:"published" as const},document:ack.document});
   const latest=await api.load(remote.editToken);
   if(latest.document.status==="published"&&latest.lastConfirmationId===context.confirmationId)return result(latest);
   if(latest.revision!==remote.revision||latest.document.status!==remote.status)throw new DraftApiError(409,"revision-conflict");
@@ -28,11 +28,11 @@ export async function confirmDraftPublication(context:SubmissionContext,io:{api:
       if(!(error instanceof DraftApiError&&error.status===0))throw error;
       const recovered=await api.load(remote.editToken);if(!recoveredQrUpload(latest,recovered,context.qr.selectionId))throw new DraftApiError(409,"revision-conflict");ack=recovered;
     }
-    remote={...remote,revision:ack.revision,qrSelectionId:context.qr.selectionId};await remember();
+    remote={...remote,revision:ack.revision,lifecycle:ack.lifecycle,qrSelectionId:context.qr.selectionId};await remember();
   }
   async function issue(){
     const capability=await api.issueShare(remote.editToken,remote.revision);
-    remote={...remote,...capability};copiedShare=undefined;await remember();
+    remote={...remote,shareToken:capability.shareToken,revision:capability.revision,lifecycle:capability.lifecycle??remote.lifecycle};copiedShare=undefined;await remember();
   }
   if(remote.status==="draft"&&!remote.shareToken)await issue();else await remember();
   const publish=()=>api.publish(remote.editToken,remote.revision,context.form,context.confirmationId,remote.shareToken);

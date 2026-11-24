@@ -114,3 +114,14 @@ describe("draft recovery session",()=>{
     await act(()=>result.current.resume());expect(result.current.phase).toBe("complete");expect(result.current.completion?.shareUrl).toContain("/share/share");expect(fx.api.publish).not.toHaveBeenCalled();
   });
 });
+it("gone_stops_pending_autosave_and_clears_view",async()=>{
+ const fx=sessionFixtures(),{result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("editing"));await act(()=>result.current.ensureRemote());vi.mocked(fx.api.save).mockRejectedValue(new DraftApiError(410,"bill-deleting"));
+ act(()=>result.current.setForm(f=>({...f,draft:{...f.draft,title:"sensitive"}})));await waitFor(()=>expect(result.current.availability).toBe("deleting"),{timeout:2000});expect(result.current.form.draft.title).toBe("");expect(result.current.remote).toBeUndefined();const count=vi.mocked(fx.api.save).mock.calls.length;act(()=>result.current.retrySave());expect(fx.api.save).toHaveBeenCalledTimes(count);
+});
+it("history_draft_does_not_replace_home_draft",async()=>{
+ const fx=sessionFixtures(checkpoint()),{result}=renderHook(()=>useDraftSession({localId:"local",dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("recovery"));expect(fx.store.read).toHaveBeenCalledWith({kind:"local",localId:"local"});await act(()=>result.current.resume());expect(fx.store.startNew).not.toHaveBeenCalled();
+});
+it("offline_delete_intent_blocks_edits_without_erasing_the_work",async()=>{
+ const saved=checkpoint(),fx=sessionFixtures(saved);vi.mocked(fx.store.history.list).mockResolvedValue([{kind:"bill",schemaVersion:1,localId:saved.localId,recordIds:[saved.localId],title:"bill",totalSatang:100,lifecycle:fx.ack.lifecycle,localVersion:0,deadlineSource:"local",syncState:"offline",shareUsable:false,pendingDelete:{revision:"old",requestedAt:1}}]);
+ const {result}=renderHook(()=>useDraftSession({dependencies:fx}));await waitFor(()=>expect(result.current.phase).toBe("recovery"));await act(()=>result.current.resume());const title=result.current.form.draft.title;act(()=>result.current.setForm(f=>({...f,draft:{...f.draft,title:"blocked"}})));expect(result.current.form.draft.title).toBe(title);await expect(result.current.prepareSubmission()).rejects.toThrow();expect(fx.api.create).not.toHaveBeenCalled();
+});

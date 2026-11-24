@@ -1,3 +1,4 @@
+import {notifyHistoryChanged} from "./bill-events";
 import { hashToken } from "./tokens";
 import { hasMeaningfulDraft, makeBlankForm, parseStoredCheckpoint, sanitizeDraftForm, type Checkpoint, type CompletionCheckpoint, type DraftContext, type WorkingCheckpoint } from "./draft-state";
 
@@ -14,13 +15,15 @@ export interface DraftStore {
   bindEditContext(localId:string,editToken:string,expectedVersion:number):Promise<WorkingCheckpoint>;
   writeCompletion(record:CompletionCheckpoint,expectedVersion:number):Promise<CompletionCheckpoint>;
   startNew(previousLocalId?:string):Promise<WorkingCheckpoint>;
+  discard(localId:string,expectedVersion:number):Promise<void>;
   close():void;
 }
 type Alias={localId:string};
 type Asset={localId:string;selectionId:string;blob:Blob;name:string;type:string};
 async function contextKey(context:DraftContext){return context.kind==="new"?"new":context.kind==="local"?"local:"+context.localId:"edit:"+await hashToken(context.editToken);}
 export async function openDraftStore(factory:IDBFactory|undefined=globalThis.indexedDB):Promise<DraftStore>{
-  const database=await openBrowserDb(factory),{transaction,close}=database;
+  const database=await openBrowserDb(factory),{close}=database;
+  const transaction:typeof database.transaction=async(mode,run)=>{const value=await database.transaction(mode,run);if(mode==="readwrite")notifyHistoryChanged();return value;};
   try{await transaction("readwrite",migrateHistory);}catch(error){close();throw error;}
   const conflict=()=>{throw new DraftStorageError("storage-conflict");};
   async function current(tx:IDBTransaction,id:string,expected:number):Promise<Checkpoint>{
@@ -38,6 +41,7 @@ export async function openDraftStore(factory:IDBFactory|undefined=globalThis.ind
   return {
     close,
     history:createHistoryStore(database),
+    async discard(id,version){await transaction("readwrite",async tx=>{await current(tx,id,version);await removeAssets(tx,id);for(const key of await request(tx.objectStore("aliases").index("localId").getAllKeys(id)))await request(tx.objectStore("aliases").delete(key));await request(tx.objectStore("records").delete(id));});notifyHistoryChanged();},
     async read(context){const key=await contextKey(context);return transaction("readonly",async tx=>{
       const alias=await request<Alias|undefined>(tx.objectStore("aliases").get(key));if(!alias)return null;
       const record=await request<unknown>(tx.objectStore("records").get(alias.localId));

@@ -1,3 +1,4 @@
+import {notifyHistoryChanged} from "./bill-events";
 import {z} from "zod";
 import {DraftStorageError,idbRequest as request,type BrowserDb} from "./browser-db";
 import type {ActiveHistoryEntry,HistoryEntry,PendingHistoryEntry} from "./history-state";
@@ -27,16 +28,17 @@ export async function clearOwnedData(tx:IDBTransaction,entry:HistoryEntry){
  }
 }
 export function createHistoryStore(database:BrowserDb):HistoryStore{
+ const transaction:BrowserDb["transaction"]=async(mode,run)=>{const value=await database.transaction(mode,run);if(mode==="readwrite")notifyHistoryChanged();return value;};
  return {
-  list:()=>database.transaction("readonly",async tx=>(await request<unknown[]>(tx.objectStore("history").getAll())).map(parseHistoryEntry)),
-  upsert:(entry,expected)=>database.transaction("readwrite",async tx=>{const found=await historyInTransaction(tx,entry.localId);if(expected===null?Boolean(found):!found||found.localVersion!==expected||found.kind!=="bill")return storageConflict();const safe=active.parse({...entry,localVersion:(expected??-1)+1});await request(tx.objectStore("history").put(safe,safe.localId));return safe;}),
-  purge:(id,version)=>database.transaction("readwrite",async tx=>{const entry=await current(tx,id,version);await clearOwnedData(tx,entry);await request(tx.objectStore("history").delete(id));}),
-  markPendingDelete:(id,version,revision)=>database.transaction("readwrite",async tx=>{const entry=await current(tx,id,version);if(entry.kind!=="bill")return storageConflict();const updated={...entry,pendingDelete:{revision,requestedAt:Date.now()},localVersion:version+1,syncState:"pending" as const};await request(tx.objectStore("history").put(updated,id));return updated;}),
-  confirmRevocation:(id,version,result)=>database.transaction("readwrite",async tx=>{
+  list:()=>transaction("readonly",async tx=>(await request<unknown[]>(tx.objectStore("history").getAll())).map(parseHistoryEntry)),
+  upsert:(entry,expected)=>transaction("readwrite",async tx=>{const found=await historyInTransaction(tx,entry.localId);if(expected===null?Boolean(found):!found||found.localVersion!==expected||found.kind!=="bill")return storageConflict();const safe=active.parse({...entry,localVersion:(expected??-1)+1});await request(tx.objectStore("history").put(safe,safe.localId));return safe;}),
+  purge:(id,version)=>transaction("readwrite",async tx=>{const entry=await current(tx,id,version);await clearOwnedData(tx,entry);await request(tx.objectStore("history").delete(id));}),
+  markPendingDelete:(id,version,revision)=>transaction("readwrite",async tx=>{const entry=await current(tx,id,version);if(entry.kind!=="bill")return storageConflict();const updated={...entry,pendingDelete:{revision,requestedAt:Date.now()},localVersion:version+1,syncState:"pending" as const};await request(tx.objectStore("history").put(updated,id));return updated;}),
+  confirmRevocation:(id,version,result)=>transaction("readwrite",async tx=>{
    const entry=await current(tx,id,version);await clearOwnedData(tx,entry);
    if(result.state==="deleted"){await request(tx.objectStore("history").delete(id));return null;}
-   if(!entry.billId||!entry.editToken||!entry.revision)return storageConflict();
-   const minimal:PendingHistoryEntry={kind:"deleting",schemaVersion:1,localId:id,billId:entry.billId,editToken:entry.editToken,revision:entry.kind==="bill"?entry.pendingDelete?.revision??entry.revision:entry.revision,localVersion:version+1,requestedAt:entry.kind==="bill"?entry.pendingDelete?.requestedAt??result.serverNow:entry.requestedAt,syncState:"pending"};
+   if(!entry.billId||!entry.editToken)return storageConflict();
+   const minimal:PendingHistoryEntry={kind:"deleting",schemaVersion:1,localId:id,billId:entry.billId,editToken:entry.editToken,revision:entry.kind==="bill"?entry.pendingDelete?.revision??entry.revision??"0".repeat(43):entry.revision,localVersion:version+1,requestedAt:entry.kind==="bill"?entry.pendingDelete?.requestedAt??result.serverNow:entry.requestedAt,syncState:"pending"};
    await request(tx.objectStore("history").put(minimal,id));return minimal;
   }),
  };

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import {BillHistoryProvider} from "@/lib/harn-tee/bill-history-provider";
 
 export const metadata: Metadata = {
   title: "harn-tee — หารที",
@@ -22,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><BillHistoryProvider>{children}</BillHistoryProvider></body>
     </html>
   );
 }

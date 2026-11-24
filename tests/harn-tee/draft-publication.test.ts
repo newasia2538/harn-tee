@@ -51,3 +51,7 @@ describe("explicit publication orchestration",()=>{
   await confirmDraftPublication(context,io);expect(fx.api.issueShare).not.toHaveBeenCalled();expect(fx.api.uploadQr).not.toHaveBeenCalled();
  });
 });
+it("does_not_copy_extra_share_ack_payload_into_remote_identity",async()=>{
+ const {fx,context,io,rememberRemote}=fixture();delete context.remote.shareToken;vi.mocked(fx.api.issueShare).mockResolvedValue({shareToken:"share",revision:fx.ack.revision,lifecycle:fx.ack.lifecycle,serverNow:100});
+ await confirmDraftPublication(context,io);for(const [remote] of rememberRemote.mock.calls as unknown as [Record<string,unknown>][])expect(remote).not.toHaveProperty("serverNow");
+});
