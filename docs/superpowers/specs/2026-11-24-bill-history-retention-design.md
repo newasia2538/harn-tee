@@ -58,7 +58,7 @@ Lifecycle rules:
 3. A transition to fully paid sets `allPaidAt = serverNow` and `expiresAt = serverNow + 7 days`.
 4. A change that leaves a bill fully paid preserves the original `allPaidAt`/7-day deadline; repeated actions cannot keep restarting it.
 5. A transition out of fully paid clears `allPaidAt` and starts 30 days from that committed change, as explicitly approved.
-6. Existing financial-edit/payment-reset behavior remains: when an edit resets payment flags, the resulting state is unpaid and the 30-day rule applies. This feature does not change the allocation calculator or silently preserve paid flags that the current app resets.
+6. Existing payment-reset behavior remains for a **meaningfully changed** published form: when an edit resets payment flags, the resulting state is unpaid and the 30-day rule applies. An unchanged published form, including a new confirmation ID with identical normalized business content, preserves paid flags, `allPaidAt`, `lastActivityAt` and the deadline. This narrowly fixes the current unconditional-publication reset for no-op saves; it does not change the calculator or payment-reset behavior for real edits. Validate the live payment/form normally; matching an already-applied confirmation retains the existing lost-response recovery exception. Recording a new confirmation marker may change transport revision without extending retention.
 7. At `serverNow >= expiresAt`, all ordinary bill reads/writes and payment/QR actions are denied. Expired bills cannot be renewed or resurrected by a stale tab, pending autosave or retry.
 
 For a remote bill, an offline browser cannot extend the server deadline by changing its local clock or unsynced form. Keep the prior deadline and show `มีข้อมูลที่ยังไม่บันทึก`; reconcile before claiming an extension. A local-only draft uses its saved browser timestamp until it becomes a server bill.
@@ -80,6 +80,8 @@ Use Prompt headings, IBM Plex Sans Thai body text, and the existing Navy & Tange
 An initial empty form does not create a history entry. Add local drafts after meaningful work, upsert the same entry when a server ID/capability is acquired, and update it on publication or an acknowledged change. The same bill must not appear as both a draft and a published bill.
 
 Scope proposal: new history automatically indexes bills created by this browser and local drafts started here. Opening somebody else's **share** link never adds a bill. Opening an **edit** link updates a matching existing history entry; it does not silently import an unrelated bill into history. An explicit cross-device import feature is outside this slice.
+
+Share-link availability is separate from bill availability. Validate the locally saved share capability when synchronizing owner history. If it is missing or stale (for example, another device issued the final draft share capability), disable public-summary/copy-share actions and say `ลิงก์แชร์ในเครื่องนี้ไม่พร้อมใช้งาน`; keep the authorized edit/open action available, including its existing bill preview. Never copy an edit capability as a view-only link, return a nonexistent share link, or rotate a published share capability automatically. Recovering unknown raw published tokens would require new server token storage and is outside this slice. A synchronization request may carry the already-known share proof to return only a `shareUsable` result, not a recovered token.
 
 The history ledger stores only identifiers/capabilities needed to reopen/manage the bill, title, total, counts/status, revision and lifecycle timestamps. It does not duplicate item details, account numbers, phone values, national IDs or QR contents. Existing working drafts may continue storing their approved safe fields/selected QR; typed PromptPay national IDs remain excluded and require re-entry after recovery.
 
@@ -166,8 +168,8 @@ Stage and verify the additive migration against disposable local D1/R2/IndexedDB
 
 ## Acceptance evidence required
 
-1. History survives reload and starting another bill; meaningful local drafts and publication deduplicate correctly. Another browser/shared-link viewer does not receive the creator's history.
-2. Exactly test day-30 and day-7 boundaries; last payer completes a bill, a payer reverts to unpaid, and completion occurs again. Duplicate status/save/confirmation requests do not extend a deadline.
+1. History survives reload and starting another bill; meaningful local drafts and publication deduplicate correctly. Another browser/shared-link viewer does not receive the creator's history. A stale/missing share proof disables only the share-dependent actions, leaves owner opening/editing available, and never exposes an edit token as a public view link.
+2. Exactly test day-30 and day-7 boundaries; last payer completes a bill, a payer reverts to unpaid, and completion occurs again. Duplicate status/save/confirmation requests do not extend a deadline. An identical published form with a new confirmation ID preserves payment flags and the original 7-day deadline; a meaningful edit follows the existing reset behavior.
 3. Clock/time-zone changes, background-tab sleep and offline return do not generate negative countdowns, extend server life, trigger per-second network requests or silently lose unsaved work.
 4. A peer extends a deadline while cleanup uses an old snapshot: the updated bill survives. A delete wins against an update/upload: all access paths stay denied and pending media cleanup remains durable.
 5. Delete repeatedly and lose the response; delete while offline; fail R2 deletion; restart before retry. Do not report successful QR deletion early or remove unrelated local records/assets.
@@ -179,6 +181,15 @@ Stage and verify the additive migration against disposable local D1/R2/IndexedDB
 
 ## Builder choices versus user review
 
-Confirmed product rules above remain binding. The following are design proposals, not claims of prior user approval: count only positive-due payers; no lifetime extension for reads/no-op saves; preserve minimal non-content deletion markers; one-time 30-/7-day rollout grace; preserve only discoverable existing local history; conditional deletion and honest pending-cleanup/offline states.
+Confirmed product rules above remain binding. The following are design proposals, not claims of prior user approval: count only positive-due payers; no lifetime extension/payment reset for reads/no-op saves; preserve minimal non-content deletion markers; one-time 30-/7-day rollout grace; preserve only discoverable existing local history; conditional deletion and honest pending-cleanup/offline states; disable unavailable share actions while retaining owner access rather than adding token recovery/rotation.
 
 The builder may choose module/file split, exact CSS spacing around the approved layout, bounded batch sizes, retry backoff, and the internal cleanup/upload coordination mechanism, provided the stated privacy, race and success criteria are proved. No new login/cron service, undo/recycle bin, cross-device history directory, payment verification or notification system is included.
+
+## Builder check outcome
+
+A fresh read-only builder check on 2026-11-24 raised two planning ambiguities, resolved above as explicit proposals for user review:
+
+- Identical publication versus the current unconditional paid-flag reset: preserve flags/deadline for a real no-op, retain resets for meaningful edits. This follows the already-stated no-op retention rule and avoids making a fully paid bill appear unpaid solely because its owner clicked save again.
+- A creator's stale/missing share capability after another device publishes: expose an honest unavailable-share state with owner edit/preview still usable. Do not expand scope into server-side raw token storage or published-link rotation.
+
+No other product questions remain from this check. Approval of this proposed design is the next step before the detailed implementation plan; prior Native execution preference is preserved.
