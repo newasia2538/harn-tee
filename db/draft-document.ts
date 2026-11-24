@@ -4,7 +4,7 @@ import type { BillDocument } from "../lib/harn-tee/types";
 import { buildBillDocument } from "./document";
 
 export type BillEnvelope=BillDocument & {draftForm?:SafeDraftForm;lastConfirmationId?:string;qrSelectionId?:string};
-export const revisionOf=(payload:string,shareDigest:string)=>hashToken(payload+"\0"+shareDigest);
+export const revisionOf=(payload:string,shareDigest:string,retentionVersion:number)=>hashToken(payload+"\0"+shareDigest+"\0"+retentionVersion);
 export function plainBill(input:BillEnvelope):BillDocument {
   const {version,status,title,feeMode,calculationMode,participants,items,vatPercent,serviceChargePercent,recipient,createdAt,updatedAt}=input;
   const result={version,status,title,feeMode,calculationMode,participants,items,vatPercent,serviceChargePercent,recipient,createdAt,updatedAt};

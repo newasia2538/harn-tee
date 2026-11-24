@@ -1,4 +1,4 @@
-export type TestBillRow={id:string;share_token_digest:string;edit_token_digest:string;payload_json:string;created_at:number;updated_at:number};
+export type TestBillRow={id:string;share_token_digest:string;edit_token_digest:string;payload_json:string;created_at:number;updated_at:number;last_activity_at?:number|null;all_paid_at?:number|null;expires_at?:number|null;retention_version?:number};
 export function conditionalBillDb(){
   const rows=new Map<string,TestBillRow>();
   const queries:Array<{sql:string;values:unknown[]}>=[];
@@ -8,9 +8,9 @@ export function conditionalBillDb(){
     async run(){
       queries.push({sql,values});
       if(sql.startsWith("INSERT")){
-        const [id,share,edit,payload,created,updated]=values as [string,string,string,string,number,number];
+        const [id,share,edit,payload,created,updated,lastActivity,allPaid,expires]=values as [string,string,string,string,number,number,number?,number?,number?];
         if(rows.has(id)||[...rows.values()].some(row=>row.edit_token_digest===edit||row.share_token_digest===share))return {success:true,meta:{changes:0}};
-        rows.set(id,{id,share_token_digest:share,edit_token_digest:edit,payload_json:payload,created_at:created,updated_at:updated});return {success:true,meta:{changes:1}};
+        rows.set(id,{id,share_token_digest:share,edit_token_digest:edit,payload_json:payload,created_at:created,updated_at:updated,last_activity_at:lastActivity??null,all_paid_at:allPaid??null,expires_at:expires??null,retention_version:0});return {success:true,meta:{changes:1}};
       }
       if(sql.startsWith("UPDATE")&&sql.includes("AND payload_json =")){
         const [payload,updated,share,id,oldPayload,oldShare]=values as [string,number,string,string,string,string];
