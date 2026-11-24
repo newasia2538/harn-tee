@@ -16,6 +16,10 @@ const row = {
   payload_json: "",
   created_at: 1,
   updated_at: 1,
+  last_activity_at:1,
+  all_paid_at:null,
+  expires_at:Date.now()+2592000000,
+  retention_version:0,
 };
 const calls: Array<{ sql: string; values: unknown[] }> = [];
 const bucket = {

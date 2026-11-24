@@ -7,6 +7,7 @@ import type {BillDocument} from "../../lib/harn-tee/types";
 export function sqliteBillDb(legacyOnly=false){
   const sqlite=new DatabaseSync(":memory:"),applied=new Set<string>();
   const queries:Array<{sql:string;values:unknown[]}>=[];
+  const hooks:{afterRun?:(sql:string,values:SQLInputValue[],changes:number)=>void;afterFirst?:(sql:string)=>void}={};
   function migrate(includeRetention=true){
     for(const name of readdirSync("drizzle").filter(name=>name.endsWith(".sql")).sort()){
       if(applied.has(name)||!includeRetention&&name!=="0000_low_speed.sql")continue;
@@ -19,9 +20,9 @@ export function sqliteBillDb(legacyOnly=false){
     const numbered=/\?\d+/.test(sql),named=Object.fromEntries(values.map((value,index)=>["?"+(index+1),value]));
     return {
       bind(...args:SQLInputValue[]){return prepare(sql,args);},
-      async first<T>(column?:string):Promise<T|null>{const statement=sqlite.prepare(sql),row=numbered?statement.get(named):statement.get(...values);return row?(column?row[column]:row) as T:null;},
+      async first<T>(column?:string):Promise<T|null>{const statement=sqlite.prepare(sql),row=numbered?statement.get(named):statement.get(...values);hooks.afterFirst?.(sql);return row?(column?row[column]:row) as T:null;},
       async all<T>(){const statement=sqlite.prepare(sql);return {success:true,results:(numbered?statement.all(named):statement.all(...values)) as T[],meta:{changes:0}};},
-      async run(){queries.push({sql,values});const statement=sqlite.prepare(sql),result=numbered?statement.run(named):statement.run(...values);return {success:true,results:[],meta:{changes:Number(result.changes)}};},
+      async run(){queries.push({sql,values});const statement=sqlite.prepare(sql),result=numbered?statement.run(named):statement.run(...values);hooks.afterRun?.(sql,values,Number(result.changes));return {success:true,results:[],meta:{changes:Number(result.changes)}};},
     };
   }
   const db={prepare,async batch(statements:ReturnType<typeof prepare>[]){
@@ -32,5 +33,5 @@ export function sqliteBillDb(legacyOnly=false){
     sqlite.prepare("INSERT INTO bills (id,share_token_digest,edit_token_digest,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id,await hashToken(shareToken),await hashToken(editToken),JSON.stringify(document),document.createdAt,document.updatedAt);
     return {id,editToken,shareToken};
   }
-  return {db,sqlite,queries,seed,migrate,close:()=>sqlite.close()};
+  return {db,sqlite,queries,hooks,seed,migrate,close:()=>sqlite.close()};
 }

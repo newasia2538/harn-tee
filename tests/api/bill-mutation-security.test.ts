@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BillDocument, BillRecord } from "../../lib/harn-tee/types";
+import {withLifecycle} from "../helpers/lifecycle-fixtures";
 
 const repository = vi.hoisted(() => ({
   createBillRecord: vi.fn(),
@@ -86,7 +87,7 @@ describe("bill mutation input security", () => {
   });
 
   it("rejects an attempt to change the lifecycle status through a bill patch", async () => {
-    const editRecord: BillRecord = { id: "bill-1", document: current, access: "edit" };
+    const editRecord: BillRecord = withLifecycle({ id: "bill-1", document: current, access: "edit",revision:"revision" });
     repository.readBillByToken.mockResolvedValue(editRecord);
     repository.updateBillByEditToken.mockClear();
 
@@ -104,7 +105,7 @@ describe("bill mutation input security", () => {
   });
 
   it("rejects unknown patch properties instead of persisting them", async () => {
-    const editRecord: BillRecord = { id: "bill-1", document: current, access: "edit" };
+    const editRecord: BillRecord = withLifecycle({ id: "bill-1", document: current, access: "edit",revision:"revision" });
     repository.readBillByToken.mockResolvedValue(editRecord);
     repository.updateBillByEditToken.mockClear();
 

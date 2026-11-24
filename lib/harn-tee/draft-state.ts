@@ -3,13 +3,14 @@ import { billCreateBodySchema } from "./server-validation";
 import { calculateBill } from "./money";
 import { validateBillDraft, validateRecipient } from "./validation";
 import type { BillDocument, BillDraft, RecipientData, ValidationResult } from "./types";
+import type {LifecycleSnapshot} from "./bill-lifecycle";
 
 export type NumericInputs = {prices: Record<string,string>; itemVat: Record<string,string>; itemService: Record<string,string>; vat: string; service: string};
 export type NumericField = {kind:"price"|"item-vat"|"item-service";itemId:string}|{kind:"vat"|"service"};
 export type DraftForm = {draft:BillDraft;step:0|1|2;numbers:NumericInputs};
 export type SafeDraftForm = DraftForm & {paymentReentryRequired:boolean};
 export type RemoteIdentity = {id:string;editToken:string;shareToken?:string;revision:string;status:"draft"|"published";qrSelectionId?:string};
-export type DraftAck = {id:string;document:BillDocument;form?:SafeDraftForm;revision:string;lastConfirmationId?:string;qrSelectionId?:string};
+export type DraftAck = {id:string;document:BillDocument;form?:SafeDraftForm;revision:string;lifecycle:LifecycleSnapshot;serverNow:number;lastConfirmationId?:string;qrSelectionId?:string};
 export type QrSelection = {kind:"none"}|{kind:"server"}|{kind:"local";selectionId:string;file:File};
 export type StoredQrSelection = {kind:"none"}|{kind:"server"}|{kind:"local";selectionId:string;name:string;contentType:"image/png"|"image/jpeg"|"image/webp";size:number};
 export type WorkingCheckpoint = {kind:"working";schemaVersion:1;localId:string;localVersion:number;formSequence:number;form:SafeDraftForm;remote?:RemoteIdentity;creationKey?:string;pendingConfirmation?:{id:string;formSequence:number};qr:StoredQrSelection;savedAt:number;serverSavedAt?:number};

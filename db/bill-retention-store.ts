@@ -6,7 +6,7 @@ export type RetentionBindings={DB:D1Database;BUCKET?:R2Bucket};
 export const BILL_COLUMNS="id, share_token_digest, edit_token_digest, payload_json, created_at, updated_at, last_activity_at, all_paid_at, expires_at, retention_version";
 
 export function rowLifecycle(row:StoredBillRow):BillLifecycle{
-  if(row.expires_at===null||row.last_activity_at===null)throw new Error("bill-retention-uninitialized");
+  if(row.expires_at===null||row.last_activity_at===null||!Number.isSafeInteger(row.expires_at)||!Number.isSafeInteger(row.last_activity_at)||(row.all_paid_at!==null&&!Number.isSafeInteger(row.all_paid_at)))throw new Error("bill-retention-uninitialized");
   return {lastActivityAt:row.last_activity_at,allPaidAt:row.all_paid_at,expiresAt:row.expires_at};
 }
 export async function retentionRolloutAt(bindings:RetentionBindings):Promise<number>{
