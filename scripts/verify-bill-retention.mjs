@@ -17,7 +17,7 @@ if(appMode){const built=JSON.parse(await readFile(path.join(root,"dist/server/wr
 async function command(parameters){return new Promise((resolve,reject)=>{const child=spawn(process.execPath,[...wrangler,...parameters],{cwd:root,env:environment,stdio:["ignore","pipe","pipe"]});let output="";child.stdout.on("data",data=>output+=data);child.stderr.on("data",data=>output+=data);child.on("error",reject);child.on("exit",code=>code===0?resolve(output):reject(new Error("Local Wrangler command failed; rerun with the disposable fixture configuration")));});}
 const migration=()=>command(["d1","migrations","apply","DB","--config",config,"--local","--persist-to",storage]);
 const sql=statement=>command(["d1","execute","DB","--config",config,"--local","--persist-to",storage,"--command",statement,"--json"]);
-let ownedWorker;let assertionCount=0;
+let ownedWorker;let assertionCount=0,devTransportRetries=0;
 function assert(value,label){if(!value)throw new Error(label);assertionCount++;}
 async function migrateTwice(){await migration();const before=await sql("SELECT rollout_at FROM bill_retention_policy WHERE id='lifecycle-v1'");await migration();const after=await sql("SELECT rollout_at FROM bill_retention_policy WHERE id='lifecycle-v1'");assert(JSON.parse(before)[0].results[0].rollout_at===JSON.parse(after)[0].results[0].rollout_at,"migration journal preserves rollout time");}
 async function stop(){if(!ownedWorker)return;const worker=ownedWorker;ownedWorker=undefined;worker.kill("SIGTERM");await Promise.race([new Promise(resolve=>worker.once("exit",resolve)),new Promise(resolve=>setTimeout(resolve,5000))]);if(worker.exitCode===null)worker.kill("SIGKILL");}
@@ -29,7 +29,7 @@ async function start(){
 async function fixture(name,extra={}){const response=await fetch(new URL("fixture",base),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,...extra})});const result=await response.json();if(!response.ok)throw new Error("Native fixture "+name+": "+result.failed);assertionCount+=result.assertions;console.log("PASS native "+name);return result;}
 const token=()=>randomBytes(32).toString("base64url");
 const form=()=>({draft:{title:"Native HTTP synthetic bill",participants:[{id:"p",name:"Tester",order:0}],items:[{id:"i",name:"Test item",priceSatang:10000,payerIds:["p"],order:0}],vatPercent:7,serviceChargePercent:10,recipient:{name:"Tester",bank:{bankId:"SCB",accountNumber:"1234567890"},promptPay:null,qr:null,visible:true}},step:0,numbers:{prices:{},itemVat:{},itemService:{},vat:"7",service:"10"},paymentReentryRequired:false});
-async function api(url,{method="GET",body,revision,headers={},status=200}={}){
+async function api(url,{method="GET",body,revision,headers={},status=200,attempt=0}={}){
  console.log("PROBE "+method+" "+url.replace(/\/api\/bills\/[^/?]+/g,"/api/bills/[proof]"));
  const headerFile=path.join(storage,"probe.headers"),bodyFile=path.join(storage,"probe.body"),inputFile=path.join(storage,"probe.input");
  const parameters=["--silent","--show-error","--max-time","45","--request",method,"--dump-header",headerFile,"--output",bodyFile];
@@ -40,6 +40,7 @@ async function api(url,{method="GET",body,revision,headers={},status=200}={}){
  await new Promise((resolve,reject)=>{const child=spawn("curl",parameters,{stdio:"ignore"});child.on("error",reject);child.on("exit",code=>code===0?resolve():reject(new Error("Local HTTP probe failed")));});
  const rawHeaders=await readFile(headerFile,"utf8"),blocks=rawHeaders.trim().split(/\r?\n\r?\n/),lines=blocks.at(-1).split(/\r?\n/),code=Number(lines.shift().split(" ")[1]),parsedHeaders=new Headers();for(const line of lines){const colon=line.indexOf(":");if(colon>0)parsedHeaders.append(line.slice(0,colon),line.slice(colon+1).trim());}
  const response=new Response(await readFile(bodyFile),{status:code,headers:parsedHeaders});
+ if(response.status===503&&attempt===0&&(await response.clone().text()).startsWith("Your worker restarted mid-request.")){devTransportRetries++;return api(url,{method,body,revision,headers,status,attempt:1});}
  assert(response.status===status,`HTTP ${method} expected ${status}, got ${response.status}`);assert(response.headers.get("Cache-Control")?.includes("no-store"),"private response no-store");return response;
 }
 async function create(){const input=form(),creationKey=token(),response=await api("/api/bills/drafts",{method:"POST",body:{creationKey,form:input}});return {input,creationKey,ack:await response.json()};}
@@ -51,7 +52,7 @@ async function unavailable(bill,expected){
 }
 try{
  await migrateTwice();
- if(!appMode){await start();for(const name of ["grace","automatic","boundary","batch","peer","stale","replay","late-put","prefix"])await fixture(name);const pending=await fixture("failure");await stop();await start();await fixture("restart",{id:pending.id});}
+ if(!appMode){await start();for(const name of ["grace","automatic","boundary","batch","peer","stale","qr-confirm","replay","late-put","prefix"])await fixture(name);const pending=await fixture("failure");await stop();await start();await fixture("restart",{id:pending.id});}
  else{
   const active=await create();let {ack}=active;const key="/api/bills/"+ack.editToken;
   const png=new Uint8Array([137,80,78,71,13,10,26,10]),file=new FormData();file.append("file",new Blob([png],{type:"image/png"}),"qr.png");
@@ -64,11 +65,13 @@ try{
   const repaid=await (await api(key+"/status",{method:"POST",body:{participantId:"p",paid:true}})).json();assert(repaid.lifecycle.allPaidAt>=paid.lifecycle.allPaidAt,"recompleted seven-day anchor");await api(key,{method:"DELETE",revision:ack.revision,status:409});
   ack=await (await api(key+"/draft")).json();const noOp=await (await api(key+"/publish",{method:"POST",revision:ack.revision,body:{form:active.input,confirmationId:"same-new-confirmation",shareToken:active.ack.shareToken}})).json();assert(noOp.lifecycle.expiresAt===ack.lifecycle.expiresAt&&noOp.document.participants[0].paid,"identical published confirmation preserves paid lifetime");ack=noOp;
   const history=await (await api("/api/bills/history",{method:"POST",body:{entries:[{localId:"native",editToken:active.ack.editToken,shareToken:active.ack.shareToken}]}})).json();assert(history.items[0].shareUsable&&!JSON.stringify(history).includes("1234567890"),"private summary proof");
-  await api("/api/bills/history",{method:"POST",body:{entries:Array.from({length:21},()=>({localId:"x",editToken:active.ack.editToken}))},status:400});await api("/api/bills/history",{method:"POST",body:{padding:"x".repeat(65537)},status:413});await api("/api/bills/nonexistent-proof",{status:404});
+  await api("/api/bills/history",{method:"POST",body:{entries:Array.from({length:21},()=>({localId:"x",editToken:active.ack.editToken}))},status:400});await api("/api/bills/nonexistent-proof",{status:404});
   const deleted=await (await api(key,{method:"DELETE",revision:ack.revision})).json();assert(deleted.state==="deleted","manual deletion complete");await unavailable(active,"bill-deleted");await api("/api/bills/drafts",{method:"POST",body:{creationKey:active.creationKey,form:active.input},status:410});
   const expiring=await create();await sql(`UPDATE bills SET expires_at=0 WHERE id='${expiring.ack.id}'`);await unavailable(expiring,"bill-deleting");const maintenance=await (await api("/api/bills/maintenance",{method:"POST",body:{}})).json();assert(Object.keys(maintenance).join()==="serverNow","maintenance reveals no directory");
   const pending=await create(),pendingKey="/api/bills/"+pending.ack.editToken;await sql(`INSERT INTO bill_qr_assets (object_key,bill_id) VALUES ('bills/${pending.ack.id}/uncertain.png','${pending.ack.id}')`);assert((await (await api(pendingKey,{method:"DELETE",revision:pending.ack.revision,status:202})).json()).state==="deleting","uncertain upload not falsely complete");await unavailable(pending,"bill-deleting");await sql(`UPDATE bill_qr_assets SET put_settled=1,next_attempt_at=0 WHERE bill_id='${pending.ack.id}'; UPDATE bill_deletions SET next_attempt_at=0 WHERE id='${pending.ack.id}'`);assert((await (await api(pendingKey,{method:"DELETE",revision:pending.ack.revision})).json()).state==="deleted","settled pending cleanup completes");
+  // Exercise unread oversized bodies last: workerd#7634 can reset local service-binding transports.
+  await api("/api/bills/history",{method:"POST",body:{padding:"x".repeat(65537)},status:413});
   console.log("PASS built application routes, 30/7 transitions, proof/privacy, all unavailable paths, QR and replay");
  }
- console.log(`PASS ${appMode?"application":"native bindings"}: ${assertionCount} assertions`);
+ console.log(`PASS ${appMode?"application":"native bindings"}: ${assertionCount} assertions; ${devTransportRetries} explicit local transport retries`);
 }finally{await stop();}

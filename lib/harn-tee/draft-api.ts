@@ -9,7 +9,7 @@ export interface DraftApi {
   load(token:string,signal?:AbortSignal):Promise<DraftAck>;
   save(token:string,revision:string,form:SafeDraftForm,signal?:AbortSignal):Promise<DraftAck>;
   uploadQr(token:string,revision:string,file:File,mode:"draft"|"confirm",signal?:AbortSignal,selectionId?:string):Promise<DraftAck>;
-  issueShare(token:string,revision:string,signal?:AbortSignal):Promise<{shareToken:string;revision:string;lifecycle?:LifecycleSnapshot;serverNow?:number}>;
+  issueShare(token:string,revision:string,signal?:AbortSignal):Promise<{shareToken:string;revision:string;serverVersion?:number;lifecycle?:LifecycleSnapshot;serverNow?:number}>;
   publish(token:string,revision:string,form:DraftForm,confirmationId:string,shareToken?:string,signal?:AbortSignal):Promise<DraftAck>;
 }
 function draftWire(form:DraftForm){const safe=sanitizeDraftForm(form);return {...safe,draft:{...safe.draft,recipient:safe.draft.recipient?{...safe.draft.recipient,qr:null}:undefined}};}

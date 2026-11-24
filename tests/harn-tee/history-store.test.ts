@@ -76,3 +76,18 @@ it("preserves_data_when_a_storage_write_is_denied",async()=>{
  await expect(store.writeWorking({...a,form:safeFixture()},a.localVersion)).rejects.toThrow();denied.mockRestore();
  expect(await store.read({kind:"new"})).toMatchObject({localVersion:a.localVersion,form:a.form});store.close();
 });
+it("a_stale_checkpoint_cannot_roll_back_a_newer_synced_revision_or_deadline",async()=>{
+ const store=await openDraftStore(new IDBFactory());let a=await store.startNew();const life={lastActivityAt:100000,allPaidAt:null,expiresAt:2592100000,paymentStatus:"unpaid" as const,paidCount:0,payerCount:1};
+ a=await store.writeWorking({...a,form:safeFixture(),remote:{id:"b",editToken:"e",revision:"A",status:"published",lifecycle:life}},a.localVersion);
+ const old=(await store.history.list())[0];if(old.kind!=="bill")throw new Error("fixture");const current=await store.history.upsert({...old,revision:"B",title:"new server title",lifecycle:{...life,paymentStatus:"paid",paidCount:1,allPaidAt:200000,expiresAt:605000000}},old.localVersion);
+ await store.writeWorking({...a,form:{...a.form,step:1}},a.localVersion);
+ expect((await store.history.list())[0]).toMatchObject({revision:"B",title:"new server title",lifecycle:current.lifecycle});store.close();
+});
+it("finishing_an_edit_only_draft_never_promotes_it_to_creator_history",async()=>{
+ const store=await openDraftStore(new IDBFactory());const a=await store.writeWorking({...oldRecord("visitor"),provenance:"edit-only",remote:{id:"other",editToken:"e",revision:"r",status:"draft"}},null);
+ const done=await store.writeCompletion({kind:"complete",schemaVersion:1,localId:a.localId,localVersion:a.localVersion,billId:"other",editUrl:"https://test/edit/e",shareUrl:"https://test/share/s",provenance:"edit-only",savedAt:1},a.localVersion);expect(done.provenance).toBe("edit-only");expect(await store.history.list()).toEqual([]);store.close();
+});
+it.each([[2,3,"C"],[4,3,"D"]])("orders_real_acknowledgements_against_server_history_versions_%s_%s",async(historyVersion,ackVersion,expectedRevision)=>{
+ const store=await openDraftStore(new IDBFactory());let a=await store.startNew();const lifecycle={lastActivityAt:100000,allPaidAt:null,expiresAt:2592100000,paymentStatus:"unpaid" as const,paidCount:0,payerCount:1};a=await store.writeWorking({...a,form:safeFixture(),remote:{id:"b",editToken:"e",revision:"A",status:"published",serverVersion:1,lifecycle}},a.localVersion);const old=(await store.history.list())[0];if(old.kind!=="bill")throw new Error("fixture");await store.history.upsert({...old,revision:historyVersion===2?"B":"D",serverVersion:historyVersion,lifecycle:{...lifecycle,expiresAt:700000000}},old.localVersion);
+ await store.writeWorking({...a,remote:{...a.remote!,revision:"C",serverVersion:ackVersion,lifecycle:{...lifecycle,expiresAt:900000000}}},a.localVersion);expect((await store.history.list())[0]).toMatchObject({revision:expectedRevision,lifecycle:{expiresAt:historyVersion===2?900000000:700000000}});store.close();
+});

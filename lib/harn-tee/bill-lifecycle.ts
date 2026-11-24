@@ -6,7 +6,7 @@ import type {BillDocument} from "./types";
 export type BillPaymentStatus="draft"|"unpaid"|"partial"|"paid";
 export type BillLifecycle={lastActivityAt:number;allPaidAt:number|null;expiresAt:number};
 export type LifecycleSnapshot=BillLifecycle & {paymentStatus:BillPaymentStatus;paidCount:number;payerCount:number};
-export type BillSummary={id:string;title:string;totalSatang:number;lifecycle:LifecycleSnapshot;revision:string};
+export type BillSummary={id:string;title:string;totalSatang:number;lifecycle:LifecycleSnapshot;revision:string;serverVersion?:number};
 export type DeleteResult={state:"deleting"|"deleted";serverNow:number};
 export const NORMAL_LIFETIME_MS=2_592_000_000;
 export const PAID_LIFETIME_MS=604_800_000;
@@ -56,7 +56,7 @@ export function sameDraftActivity(before:SafeDraftForm,after:SafeDraftForm):bool
   return activity(before)===activity(after);
 }
 
-export function summarizeBill(document:BillDocument,id:string,revision:string,lifecycle:BillLifecycle):BillSummary{
+export function summarizeBill(document:BillDocument,id:string,revision:string,lifecycle:BillLifecycle,serverVersion?:number):BillSummary{
   const calculation=document.status==="draft"?selectLiveTotals(formFromDocument(document)).calculation:calculateBill(document);
-  return {id,title:document.title,totalSatang:calculation.grossTotalSatang,lifecycle:{...lifecycle,...paymentProgress(document)},revision};
+  return {id,serverVersion,title:document.title,totalSatang:calculation.grossTotalSatang,lifecycle:{...lifecycle,...paymentProgress(document)},revision};
 }

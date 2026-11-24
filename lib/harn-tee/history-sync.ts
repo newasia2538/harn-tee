@@ -39,7 +39,7 @@ export function createHistorySync({store,api,clock}:{store:HistoryStore;api:Hist
       else if(item.kind==="missing")await apply(()=>store.upsert({...entry,syncState:"conflict",shareUsable:false},entry.localVersion));
       else{
        const changed=Boolean(entry.revision&&entry.revision!==item.summary.revision),conflict=changed&&(entry.syncState==="pending"||entry.syncState==="offline"||entry.syncState==="conflict");
-       await apply(()=>store.upsert({...entry,billId:item.summary.id,revision:item.summary.revision,lifecycle:item.summary.lifecycle,...(!conflict?{title:item.summary.title,totalSatang:item.summary.totalSatang}:{}),deadlineSource:"server",shareUsable:item.shareUsable,syncState:conflict||entry.pendingDelete?"conflict":"synced"},entry.localVersion));
+       await apply(()=>store.upsert({...entry,billId:item.summary.id,revision:item.summary.revision,serverVersion:item.summary.serverVersion,lifecycle:item.summary.lifecycle,...(!conflict?{title:item.summary.title,totalSatang:item.summary.totalSatang}:{}),deadlineSource:"server",shareUsable:item.shareUsable,syncState:conflict||entry.pendingDelete?"conflict":"synced"},entry.localVersion));
        if(changed&&entry.billId)broadcastBillEvent({billId:entry.billId,kind:"updated"});
       }
      }

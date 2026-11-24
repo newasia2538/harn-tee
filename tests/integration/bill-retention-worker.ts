@@ -7,7 +7,7 @@ import {runBillMaintenance} from "../../db/bill-maintenance";
 import {lookupBillAccess} from "../../db/bill-access";
 import {revokeBillSnapshot,drainBillQrCleanup} from "../../db/bill-deletion";
 import {registerQrAsset,settleQrAsset} from "../../db/bill-qr-assets";
-import {createDraftOnce,deleteBillByEditToken,readEditCheckpoint} from "../../db/repository";
+import {createDraftOnce,deleteBillByEditToken,readEditCheckpoint,setParticipantPaid,saveQrForEditToken,publishCheckpoint} from "../../db/repository";
 import {sanitizeDraftForm,formFromDocument} from "../../lib/harn-tee/draft-state";
 const bindings=()=>({DB:env.DB!,BUCKET:env.BUCKET!});
 const doc=(status:"draft"|"published"="published",paid=false,zero=false)=>{const d=buildBillDocument({title:"Native synthetic bill",participants:[{id:"p",name:"Tester",order:0}],items:[{id:"i",name:"Test item",priceSatang:zero?0:10000,payerIds:["p"],order:0}],vatPercent:0,serviceChargePercent:0,recipient:{name:"Tester",bank:null,promptPay:null,qr:null,visible:true}},Date.now(),status);d.participants[0].paid=paid;return d;};
@@ -44,6 +44,14 @@ async function scenario(name:string,input:{id?:string}){
  }
  case "stale":{
   const bill=await seed(name),ack=(await readEditCheckpoint(bill.edit))!;await env.DB!.prepare("UPDATE bills SET retention_version=retention_version+1 WHERE id=?1").bind(bill.id).run();let conflict=false;try{await deleteBillByEditToken(bill.edit,ack.revision);}catch(error){conflict=error instanceof Error&&error.message==="revision-conflict";}assert(conflict,"stale manual confirmation");assert(Boolean(await row(bill.id)),"stale delete preserves payload");return {assertions:2};
+ }
+ case "qr-confirm":{
+  const bill=await seed(name),initial=(await readEditCheckpoint(bill.edit))!,paid=(await setParticipantPaid(bill.edit,"p",true,initial.revision))!;
+  const uploaded=(await saveQrForEditToken(bill.edit,new File(["synthetic"],"qr.png",{type:"image/png"}),{revision:paid.revision,mode:"confirm",selectionId:"replacement"}))!;
+  const result=await publishCheckpoint(bill.edit,uploaded.revision,formFromDocument(initial.document),"qr-only");assert(result.kind==="ok"&&!result.value.document.participants[0].paid&&result.value.lifecycle.expiresAt-result.value.lifecycle.lastActivityAt===2592000000,"QR-only commit resets paid lifetime");
+  const current=(await readEditCheckpoint(bill.edit))!,again=(await setParticipantPaid(bill.edit,"p",true,current.revision))!;
+  const retry=(await saveQrForEditToken(bill.edit,new File(["synthetic"],"qr.png",{type:"image/png"}),{revision:again.revision,mode:"confirm",selectionId:"replacement"}))!;
+  assert(retry.revision===again.revision&&retry.document.participants[0].paid,"same QR retry preserves newer payment");return {assertions:2};
  }
  case "replay":{
   const key=createOpaqueToken(),form=sanitizeDraftForm(formFromDocument(doc("draft"))),ack=await createDraftOnce(key,form);assert((await deleteBillByEditToken(ack.editToken,ack.revision))?.state==="deleted","delete create-once");let gone=false;try{await createDraftOnce(key,form);}catch(error){gone=error instanceof Error&&error.message==="bill-deleted";}assert(gone,"creation replay denied");assert((await deleteBillByEditToken(ack.editToken,ack.revision))?.state==="deleted","repeat delete");return {assertions:3};

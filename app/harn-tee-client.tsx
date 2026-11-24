@@ -187,10 +187,10 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
       const result=await confirmDraftPublication(context,{api,rememberRemote:session.rememberRemote},{recoveryCopyAcknowledged:recoveryCopy?.signature===signature&&recoveryCopy.copied&&recoveryCopy.acknowledged});
       if (context.remote.status==="published") {
         await session.completePublishedUpdate(result.document,result.remote);
-        setPaidState(Object.fromEntries(draft.participants.map((person) => [person.id, false])));
+        setPaidState(Object.fromEntries(result.document.participants.map((person) => [person.id,person.paid])));
         setSaved(true);
       } else {
-        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,lifecycle:result.remote.lifecycle,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
+        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,revision:result.remote.revision,serverVersion:result.remote.serverVersion,lifecycle:result.remote.lifecycle,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
       }
       setRecoveryCopy(null);
     } catch (caught) {
@@ -214,7 +214,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,
     });
     if(response.status===410){const body=await response.json() as {code:string};session.failSubmission(new DraftApiError(410,body.code));return;}
     if(response.status===409){const conflict=new DraftApiError(409,"revision-conflict");session.failSubmission(conflict);report(conflict);return;}
-    if(response.ok){const body=await response.json() as {revision:string;lifecycle:LifecycleSnapshot;serverNow:number};billServerClock.sync(body.serverNow);setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision,lifecycle:body.lifecycle}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
+    if(response.ok){const body=await response.json() as {revision:string;serverVersion?:number;lifecycle:LifecycleSnapshot;serverNow:number};billServerClock.sync(body.serverNow);setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision,serverVersion:body.serverVersion,lifecycle:body.lifecycle}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
   };
 
   if(session.availability!=="active")return <DeletedBillState state={session.availability}/>;

@@ -25,7 +25,7 @@ export async function POST(
     const parsed=paymentStatusBodySchema.safeParse(await readJsonBody(request,MAX_STATUS_JSON_BYTES));
     if(!parsed.success)return draftJson({error:"ข้อมูลสถานะไม่ครบถ้วน"},400);
     const ack=await setParticipantPaid(token,parsed.data.participantId,parsed.data.paid,revision);
-    return ack?draftJson({participants:ack.document.participants,revision:ack.revision,lifecycle:ack.lifecycle,serverNow:ack.serverNow},200,ack.revision):draftJson({error:"ไม่พบข้อมูลบิลนี้"},404);
+    return ack?draftJson({participants:ack.document.participants,revision:ack.revision,serverVersion:ack.serverVersion,lifecycle:ack.lifecycle,serverNow:ack.serverNow},200,ack.revision):draftJson({error:"ไม่พบข้อมูลบิลนี้"},404);
   });
   const { token } = await context.params;
   try {

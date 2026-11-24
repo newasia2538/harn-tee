@@ -114,3 +114,10 @@ it("share_issuance_preserves_qr_marker_and_lifetime",async()=>{
   expect(issued).toMatchObject({kind:"ok",value:{lifecycle:{lastActivityAt:100000,expiresAt:2592100000}}});
   expect((await readEditCheckpoint(first.editToken))?.qrSelectionId).toBe("qr-selection");
 });
+it("qr_only_confirmation_resets_payment_once_and_same_selection_retries_are_noops",async()=>{
+ const {qrBucket}=await import("../helpers/qr-bucket"),{saveQrForEditToken}=await import("../../db/repository");const bucket=qrBucket();worker.env.BUCKET=bucket.bucket;
+ const first=await createDraftOnce(createOpaqueToken(),safeFixture()),pub=await publishCheckpoint(first.editToken,first.revision,draftFixture(),"first",first.shareToken);if(pub.kind!=="ok")throw new Error("fixture");vi.setSystemTime(200000);const paid=(await setParticipantPaid(first.editToken,"p1",true,pub.value.revision))!;
+ vi.setSystemTime(300000);const file=new File(["qr"],"qr.png",{type:"image/png"}),upload=(await saveQrForEditToken(first.editToken,file,{revision:paid.revision,mode:"confirm",selectionId:"replacement"}))!;
+ const edited=await publishCheckpoint(first.editToken,upload.revision,draftFixture(),"qr-only");expect(edited).toMatchObject({kind:"ok",value:{document:{participants:[{paid:false}]},lifecycle:{paymentStatus:"unpaid",allPaidAt:null,expiresAt:2592300000}}});if(edited.kind!=="ok")throw new Error("fixture");
+ vi.setSystemTime(400000);const paidAgain=(await setParticipantPaid(first.editToken,"p1",true,edited.value.revision))!;const retry=(await saveQrForEditToken(first.editToken,file,{revision:paidAgain.revision,mode:"confirm",selectionId:"replacement"}))!;expect(retry.revision).toBe(paidAgain.revision);expect(retry.lifecycle).toEqual(paidAgain.lifecycle);expect(bucket.objects.size).toBe(1);
+});

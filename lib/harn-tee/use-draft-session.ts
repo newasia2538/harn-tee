@@ -49,7 +49,7 @@ function createSession(options:Options,emit:(view:View)=>void){
     const write=tail.catch(()=>undefined).then(async()=>{
       guard(id);const store=await storePromise;guard(id);
       const committed=await store.writeWorking(snapshot,exists?record!.localVersion:null,file);guard(id);
-      exists=true;record={...record!,localVersion:committed.localVersion};
+      exists=true;record={...record!,localVersion:committed.localVersion,lifecycle:committed.lifecycle,provenance:committed.provenance};
       if(snapshot.remote&&boundToken!==snapshot.remote.editToken){
         const bound=await store.bindEditContext(record.localId,snapshot.remote.editToken,record.localVersion);guard(id);
         record={...record,localVersion:bound.localVersion};boundToken=snapshot.remote.editToken;
@@ -73,7 +73,7 @@ function createSession(options:Options,emit:(view:View)=>void){
           const latest=await api.load(remote.editToken,signal);guard(id);if(!recoveredQrUpload(before,latest,qr.selectionId))throw new DraftApiError(409,"revision-conflict");ack=latest;
         }
         guard(id);serverSnapshot=ack;if(record)record={...record,lifecycle:ack.lifecycle};
-        remote={...remote,revision:ack.revision,lifecycle:ack.lifecycle,qrSelectionId:qr.selectionId};update({remote});if(record)record={...record,remote};
+        remote={...remote,revision:ack.revision,serverVersion:ack.serverVersion,lifecycle:ack.lifecycle,qrSelectionId:qr.selectionId};update({remote});if(record)record={...record,remote};
       }
       let ack:DraftAck;
       try{ack=await api.save(remote.editToken,remote.revision,form,signal);}catch(error){
@@ -85,7 +85,7 @@ function createSession(options:Options,emit:(view:View)=>void){
           ack=latest;
         }else throw error;
       }
-      guard(id);serverSnapshot=ack;if(record)record={...record,lifecycle:ack.lifecycle};update({remote:{...remote,revision:ack.revision,lifecycle:ack.lifecycle}});if(record)record={...record,remote:view.remote,serverSavedAt:Date.now()};
+      guard(id);serverSnapshot=ack;if(record)record={...record,lifecycle:ack.lifecycle};update({remote:{...remote,revision:ack.revision,serverVersion:ack.serverVersion,lifecycle:ack.lifecycle}});if(record)record={...record,remote:view.remote,serverSavedAt:Date.now()};
       await persist().catch(()=>undefined);
     }});return queue;
   }
@@ -113,12 +113,12 @@ function createSession(options:Options,emit:(view:View)=>void){
     }
     update({form:saved.form,qr,remote:saved.remote,recovery:null,phase:"hydrating",localSave:{status:"saved",savedAt:saved.savedAt}});
   }
-  const identity=(ack:DraftAck,token:string,previous?:RemoteIdentity):RemoteIdentity=>{if(ack.document.status==="deleted")throw new DraftApiError(404,"not-found");return {...previous,id:ack.id,editToken:token,revision:ack.revision,lifecycle:ack.lifecycle,status:ack.document.status};};
+  const identity=(ack:DraftAck,token:string,previous?:RemoteIdentity):RemoteIdentity=>{if(ack.document.status==="deleted")throw new DraftApiError(404,"not-found");return {...previous,id:ack.id,editToken:token,revision:ack.revision,serverVersion:ack.serverVersion,lifecycle:ack.lifecycle,status:ack.document.status};};
   async function restoreReceipt(saved:WorkingCheckpoint,ack:DraftAck){
     if(ack.document.status!=="published"||!saved.pendingConfirmation||ack.lastConfirmationId!==saved.pendingConfirmation.id||!saved.remote?.shareToken)return false;
     const origin=globalThis.location?.origin??"https://harn-tee.zleeppy.chatgpt.site";
     record=saved;exists=true;update({remote:identity(ack,saved.remote.editToken,saved.remote)});
-    await completeSubmission({kind:"complete",schemaVersion:1,localId:saved.localId,localVersion:saved.localVersion,billId:ack.id,shareUrl:origin+"/share/"+saved.remote.shareToken,editUrl:origin+"/edit/"+saved.remote.editToken,savedAt:Date.now()});return true;
+    await completeSubmission({kind:"complete",schemaVersion:1,localId:saved.localId,localVersion:saved.localVersion,billId:ack.id,revision:ack.revision,serverVersion:ack.serverVersion,lifecycle:ack.lifecycle,shareUrl:origin+"/share/"+saved.remote.shareToken,editUrl:origin+"/edit/"+saved.remote.editToken,savedAt:Date.now()});return true;
   }
   async function resume(){
     const saved=view.recovery;if(!saved)return;const id=generation;
@@ -179,7 +179,7 @@ function createSession(options:Options,emit:(view:View)=>void){
   }
   async function completeSubmission(receipt:CompletionCheckpoint){
     const id=generation;queue?.stop();await tail.catch(()=>undefined);guard(id);
-    const completed={...receipt,provenance:record?.provenance,lifecycle:receipt.lifecycle??record?.lifecycle,localId:record?.localId??receipt.localId,localVersion:record?.localVersion??receipt.localVersion};
+    const completed={...receipt,revision:receipt.revision??record?.remote?.revision,serverVersion:receipt.serverVersion??record?.remote?.serverVersion,provenance:record?.provenance,lifecycle:receipt.lifecycle??record?.lifecycle,localId:record?.localId??receipt.localId,localVersion:record?.localVersion??receipt.localVersion};
     // The server has already published; keep the success links visible even if local storage fails.
     update({phase:"complete",completion:completed,recovery:null});
     try{const committed=await (await storePromise).writeCompletion(completed,record!.localVersion);guard(id);update({completion:committed,localSave:{status:"saved",savedAt:committed.savedAt}});}catch(error){guard(id);update({localSave:errorState(error)});}
