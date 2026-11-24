@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import {useRouter} from "next/navigation";
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import Image from "next/image";
 import { ArrowLeft, ArrowRight, Check, Clipboard, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +18,9 @@ import { CopyButton } from "@/components/harn-tee/copy-button";
 import { ParticipantDetail } from "@/components/harn-tee/participant-detail";
 import {DraftRecovery} from "@/components/harn-tee/draft-recovery";
 import {DraftSaveStatus} from "@/components/harn-tee/draft-save-status";
+import {billServerClock} from "@/lib/harn-tee/bill-clock";
+import type {LifecycleSnapshot} from "@/lib/harn-tee/bill-lifecycle";
+import {DeletedBillState} from "@/components/harn-tee/deleted-bill-state";
 import {LiveBillTotals} from "@/components/harn-tee/live-bill-totals";
 import {useDraftSession} from "@/lib/harn-tee/use-draft-session";
 import {setNumericInput,validateFormForPublication,type DraftAck,type NumericField} from "@/lib/harn-tee/draft-state";
@@ -57,9 +59,8 @@ function BrandMark() {
   );
 }
 
-export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionDependencies }: { initialDocument?: BillDocument;initialSnapshot?:DraftAck; editToken?: string;sessionDependencies?:{store:DraftStore;api:DraftApi} }) {
-  const router=useRouter();
-  const session=useDraftSession({initialDocument,initialSnapshot,editToken,dependencies:sessionDependencies});
+export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,localId,sessionDependencies }: { initialDocument?: BillDocument;initialSnapshot?:DraftAck; editToken?: string;localId?:string;sessionDependencies?:{store:DraftStore;api:DraftApi} }) {
+  const session=useDraftSession({initialDocument,initialSnapshot,editToken,localId,dependencies:sessionDependencies});
   const api=useRef(sessionDependencies?.api??createDraftApi()).current;
   const draft=session.form.draft,step=session.form.step,qrFile=session.qr.kind==="local"?session.qr.file:null;
   const isEditMode=session.remote?.status==="published";
@@ -68,8 +69,19 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
   const [recoveryCopy,setRecoveryCopy]=useState<{signature:string;shareUrl?:string;editUrl:string;copied:boolean;acknowledged:boolean}|null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [totalBarHeight,setTotalBarHeight]=useState(84);
   const [saved, setSaved] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+  const totalBarVisible=step===1&&session.phase==="editing";
+  useEffect(()=>{
+    if(!totalBarVisible)return;
+    const root=document.documentElement,previous=root.style.getPropertyValue("--harn-bottom-clearance");
+    root.style.setProperty("--harn-bottom-clearance",`${totalBarHeight+16}px`);
+    const focused=document.activeElement;
+    const frame=focused instanceof HTMLElement&&focused.matches("input,textarea,select")&&typeof requestAnimationFrame==="function"
+      ?requestAnimationFrame(()=>focused.scrollIntoView?.({block:"nearest"})):undefined;
+    return ()=>{if(previous)root.style.setProperty("--harn-bottom-clearance",previous);else root.style.removeProperty("--harn-bottom-clearance");if(frame!==undefined)cancelAnimationFrame(frame);};
+  },[totalBarHeight,totalBarVisible]);
   const [paidState, setPaidState] = useState<Record<string, boolean>>(() =>
     Object.fromEntries((initialDocument??initialSnapshot?.document)?.participants.map((person) => [person.id, person.paid]) ?? []),
   );
@@ -79,7 +91,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
   const setStep=(updater:number|((step:number)=>number))=>session.setForm(form=>({...form,step:Math.max(0,Math.min(2,typeof updater==="function"?updater(form.step):updater)) as 0|1|2}));
   const onNumericChange=(field:NumericField,raw:string)=>{setSaved(false);setRecoveryCopy(null);session.setForm(form=>setNumericInput(form,field,raw));};
   const report=(caught:unknown)=>setError(caught instanceof DraftApiError?(caught.status===409?"ข้อมูลเปลี่ยนจากอีกหน้าหรืออีกเครื่อง กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก":"เชื่อมต่อไม่สำเร็จ กรุณาลองอีกครั้ง"):caught instanceof Error?caught.message:"บันทึกไม่สำเร็จ กรุณาลองใหม่");
-  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken)router.push("/");};
+  const startNew=async()=>{await session.beginNew();setNewConfirmation(false);setRecoveryCopy(null);setSaved(false);setError("");setSelectedPerson(null);if(editToken||localId)window.location.assign("/");};
   const draftRef = useRef(draft);
   const actionsRef=useRef({setStep,setDraft});
   useEffect(() => {
@@ -175,10 +187,10 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
       const result=await confirmDraftPublication(context,{api,rememberRemote:session.rememberRemote},{recoveryCopyAcknowledged:recoveryCopy?.signature===signature&&recoveryCopy.copied&&recoveryCopy.acknowledged});
       if (context.remote.status==="published") {
         await session.completePublishedUpdate(result.document,result.remote);
-        setPaidState(Object.fromEntries(draft.participants.map((person) => [person.id, false])));
+        setPaidState(Object.fromEntries(result.document.participants.map((person) => [person.id,person.paid])));
         setSaved(true);
       } else {
-        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
+        await session.completeSubmission({kind:"complete",schemaVersion:1,localId:context.localId,localVersion:context.localVersion,billId:result.remote.id,revision:result.remote.revision,serverVersion:result.remote.serverVersion,lifecycle:result.remote.lifecycle,shareUrl:window.location.origin+"/share/"+result.remote.shareToken,editUrl:window.location.origin+"/edit/"+result.remote.editToken,savedAt:result.document.updatedAt});
       }
       setRecoveryCopy(null);
     } catch (caught) {
@@ -200,12 +212,15 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
       headers: { "Content-Type": "application/json","If-Match":`"${session.remote!.revision}"` },
       body: JSON.stringify({ participantId, paid: nextPaid }),
     });
+    if(response.status===410){const body=await response.json() as {code:string};session.failSubmission(new DraftApiError(410,body.code));return;}
     if(response.status===409){const conflict=new DraftApiError(409,"revision-conflict");session.failSubmission(conflict);report(conflict);return;}
-    if(response.ok){const body=await response.json() as {revision:string};setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
+    if(response.ok){const body=await response.json() as {revision:string;serverVersion?:number;lifecycle:LifecycleSnapshot;serverNow:number};billServerClock.sync(body.serverNow);setPaidState((current) => ({ ...current, [participantId]: nextPaid }));await session.rememberRemote({...session.remote!,revision:body.revision,serverVersion:body.serverVersion,lifecycle:body.lifecycle}).catch(()=>undefined);}else setError("อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง");
   };
 
+  if(session.availability!=="active")return <DeletedBillState state={session.availability}/>;
+  if(localId&&session.localSave.code==="local-not-found")return <main className="mx-auto max-w-xl p-6 text-center text-[#15263d]"><h1 className="font-display text-2xl">ไม่พบดราฟต์นี้ในเครื่อง</h1><Link href="/history" className="mt-5 inline-block underline">กลับไปบิลของฉัน</Link></main>;
   if(session.phase==="hydrating")return <main className="mx-auto max-w-2xl p-6 text-[#243b53]"><BrandMark/><p role="status" className="mt-8">กำลังโหลดดราฟต์…</p>{session.remoteSave.status==="error"&&<Button onClick={()=>void session.loadLatest().catch(report)}>ลองโหลดอีกครั้ง</Button>}{error&&<p role="alert">{error}</p>}</main>;
-  if(session.phase==="recovery"&&session.recovery)return <main className="mx-auto max-w-2xl p-6"><BrandMark/><DraftRecovery candidate={session.recovery} onResume={()=>void session.resume().catch(report)} onStartFresh={()=>void startNew().catch(report)}/></main>;
+  if(session.phase==="recovery"&&session.recovery)return <main className="mx-auto max-w-2xl p-6"><BrandMark/><Link href="/history" className="mt-4 block text-sm font-semibold text-[#185c74]">บิลของฉัน</Link><DraftRecovery candidate={session.recovery} onResume={()=>void session.resume().catch(report)} onStartFresh={()=>void startNew().catch(report)}/></main>;
 
   if (links) {
     return (
@@ -219,10 +234,11 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
   }
 
   return (
-    <main className="min-h-screen px-4 pb-12 pt-5 sm:px-6 sm:pt-8">
+    <main className="harn-bill-entry min-h-screen px-4 pb-12 pt-5 sm:px-6 sm:pt-8" style={totalBarVisible?{paddingBottom:totalBarHeight+32}:undefined}>
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <BrandMark />
+          <Link href="/history" className="shrink-0 text-sm font-semibold text-[#185c74]">บิลของฉัน</Link>
           <div className="hidden items-center gap-2 text-xs font-semibold text-[#789085] sm:flex">
             <Sparkles size={15} className="text-[#e77b57]" />
             ช่วยหารบิลที่เราจ่ายกันไป
@@ -264,7 +280,8 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
             </div>
           ) : null}
 
-          <fieldset disabled={saving||session.phase==="submitting"} className="mt-6 min-w-0 space-y-5">
+          {session.deletionPending&&<p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">รอยืนยันการลบเมื่อเชื่อมต่อ · หยุดการแก้ไขบิลชั่วคราว <Link href="/history" className="underline">ไปที่บิลของฉัน</Link></p>}
+          <fieldset disabled={saving||session.deletionPending||session.phase==="submitting"} className="mt-6 min-w-0 space-y-5">
             {step === 0 ? (
               <>
                 <Card className="border-[#dfe8df] bg-white/85 shadow-[0_22px_60px_rgb(32_67_56/7%)]">
@@ -295,7 +312,7 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
 
             {step === 1 ? (
               <>
-                <LiveBillTotals form={session.form}/>
+                {totalBarVisible&&<LiveBillTotals form={session.form} onNext={nextStep} disabled={saving} onHeightChange={setTotalBarHeight}/>}
                 <ItemEditor items={draft.items} participants={draft.participants} feeMode={draft.feeMode ?? "bill"} onChange={updateItem} onAdd={addItem} onRemove={removeItem} onImport={importReceiptItems} numbers={session.form.numbers} onNumericChange={onNumericChange}/>
                 <FeeEditor
                   vatPercent={draft.vatPercent}
@@ -329,14 +346,14 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
                 </CardHeader>
                 <CardContent className="space-y-5">
                   <div className="rounded-2xl bg-[#173f35] p-5 text-white">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
+                    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
+                      <div className="min-w-0 max-w-full">
                         <p className="text-sm text-[#b9d8c3]">ยอดตามใบเสร็จ</p>
-                        <p className="mt-1 font-display text-4xl">{formatBaht(calculation.grossTotalSatang)} <span className="text-base font-sans font-medium text-[#c5ded0]">บาท</span></p>
+                        <p className="mt-1 font-display text-[clamp(1.5rem,7vw,2.25rem)] [overflow-wrap:anywhere] sm:text-4xl">{formatBaht(calculation.grossTotalSatang)} <span className="text-base font-sans font-medium text-[#c5ded0]">บาท</span></p>
                       </div>
                       <Badge className="bg-[#e87553] text-white hover:bg-[#e87553]">{draft.participants.length} คน</Badge>
                     </div>
-                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm">
+                    <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4 text-sm [overflow-wrap:anywhere]">
                       <div><span className="text-[#b9d8c3]">สินค้า</span><strong className="mt-1 block">{formatBaht(calculation.subtotalSatang)} บาท</strong></div>
                       <div><span className="text-[#b9d8c3]">ปัดขึ้นรวม</span><strong className="mt-1 block text-[#ffd1bd]">+{formatBaht(calculation.roundingDifferenceSatang)} บาท</strong></div>
                     </div>
@@ -344,9 +361,9 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
                   <div className="space-y-2">
                     {calculation.participants.map((person) => (
                       <div className="rounded-xl border border-[#d9e3ec] bg-white px-4 py-3" key={person.participantId}>
-                        <button type="button" onClick={() => setSelectedPerson(person.participantId)} className="flex w-full items-center justify-between gap-3 text-left">
-                          <span><span className="block font-semibold text-[#1f3b55]">{person.name}</span><span className="mt-1 block text-xs text-[#607387]">{person.lineItems.length} รายการ · ดูรายละเอียด</span></span>
-                          <span className="font-display text-xl text-[#15263d]">{formatBaht(person.amountDueSatang)} <span className="font-sans text-xs text-[#607387]">บาท</span></span>
+                        <button type="button" onClick={() => setSelectedPerson(person.participantId)} className="flex w-full min-w-0 flex-col items-start justify-between gap-3 text-left sm:flex-row sm:items-center">
+                          <span className="min-w-0 [overflow-wrap:anywhere]"><span className="block font-semibold text-[#1f3b55]">{person.name}</span><span className="mt-1 block text-xs text-[#607387]">{person.lineItems.length} รายการ · ดูรายละเอียด</span></span>
+                          <span className="min-w-0 max-w-full font-display text-xl text-[#15263d] [overflow-wrap:anywhere]">{formatBaht(person.amountDueSatang)} <span className="font-sans text-xs text-[#607387]">บาท</span></span>
                         </button>
                         {isEditMode ? <button type="button" onClick={() => void toggleAdminPaid(person.participantId)} className="mt-2 text-xs font-bold text-[#185c74]">{paidState[person.participantId] ? "จ่ายแล้ว · เปลี่ยนเป็นยังไม่จ่าย" : "ยังไม่ได้จ่าย · กดเพื่อเปลี่ยน"}</button> : null}
                       </div>
@@ -366,21 +383,21 @@ export function HarnTeeApp({ initialDocument,initialSnapshot, editToken,sessionD
               <label className="flex items-center gap-2"><input type="checkbox" disabled={!recoveryCopy.copied} checked={recoveryCopy.acknowledged} onChange={event=>setRecoveryCopy({...recoveryCopy,acknowledged:event.target.checked})}/>ฉันเก็บลิงก์กู้คืนแล้ว</label>
             </section>}
 
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               {step > 0 ? (
                 <Button type="button" variant="ghost" onClick={() => { setError(""); setStep((current) => current - 1); }} className="h-12 rounded-xl text-[#537166] hover:bg-[#eef7eb]">
                   <ArrowLeft size={17} /> ย้อนกลับ
                 </Button>
               ) : <span />}
-              {step < 2 ? (
+              {step === 0 ? (
                 <Button type="button" onClick={nextStep} className="h-12 rounded-xl bg-[#ef6c4d] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(239_108_77/22%)] hover:bg-[#d95c40]">
-                  {step === 0 ? "ไปใส่รายการสินค้า" : "ตรวจสอบยอด"} <ArrowRight size={17} />
+                  ไปใส่รายการสินค้า <ArrowRight size={17} />
                 </Button>
-              ) : (
-                <Button type="button" onClick={saveBill} disabled={saving} className="h-12 rounded-xl bg-[#2f7256] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(47_114_86/22%)] hover:bg-[#265d48]">
+              ) : step===2 ? (
+                <Button type="button" onClick={saveBill} disabled={saving} className="h-12 w-full rounded-xl bg-[#2f7256] px-5 text-base font-bold text-white shadow-[0_9px_20px_rgb(47_114_86/22%)] hover:bg-[#265d48] sm:w-auto">
                   {saving ? "กำลังบันทึก..." : isEditMode ? "บันทึกการแก้ไข" : "ยืนยันและสร้างลิงก์แชร์"} <Check size={17} />
                 </Button>
-              )}
+              ) : null}
             </div>
             {saved ? <div className="rounded-xl border border-[#bfdcc8] bg-[#eff9f0] px-4 py-3 text-sm font-semibold text-[#2f7256]">บันทึกการแก้ไขแล้ว ลองเปิด share link เพื่อดูผลล่าสุด</div> : null}
           </fieldset>

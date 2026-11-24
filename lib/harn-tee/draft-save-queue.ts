@@ -18,7 +18,7 @@ export function createDraftSaveQueue({save,onState}:{save:(form:SafeDraftForm,si
       if(stopped)return;error=caught;if(!pending)pending=snapshot;
       conflict=caught instanceof DraftApiError&&caught.status===409;
       emit({status:conflict?"conflict":"error",code:caught instanceof DraftApiError?caught.code:"network"});
-      if(!conflict)schedule([1000,2000,5000,15000,30000][Math.min(retries++,4)]);
+      if(!stopped&&!conflict)schedule([1000,2000,5000,15000,30000][Math.min(retries++,4)]);
     }).finally(()=>{
       inFlight=null;controller=null;
       if(!stopped&&!conflict&&pending&&succeeded)void run();

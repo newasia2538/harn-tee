@@ -1,3 +1,5 @@
+// Financial capability responses must always execute against current server state.
+export const dynamic="force-dynamic";
 import {
   readBillByToken,
   readQrByToken,
@@ -21,6 +23,7 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
+  return withDraftErrors(async()=>{
   const { token } = await context.params;
   const object = await readQrByToken(token);
   if (!object) return json({ error: "ไม่พบ QR ของบิลนี้" }, { status: 404 });
@@ -32,6 +35,7 @@ export async function GET(
       "Cross-Origin-Resource-Policy": "same-origin",
       ...(object.httpEtag ? { ETag: object.httpEtag } : {}),
     },
+  });
   });
 }
 

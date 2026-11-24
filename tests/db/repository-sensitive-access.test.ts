@@ -1,54 +1,32 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach, describe, expect, it, vi } from "vitest";
 
 const worker = vi.hoisted(() => ({ env: { DB: null as unknown, BUCKET: null as unknown } }));
 
 vi.mock("cloudflare:workers", () => ({ env: worker.env }));
 
-import { deleteBillByEditToken, readQrByToken } from "../../db/repository";
+import { deleteBillByEditToken, readQrByToken,readEditCheckpoint } from "../../db/repository";
 import { hashToken } from "../../lib/harn-tee/tokens";
+import {conditionalBillDb,type TestBillRow} from "../helpers/conditional-bill-db";
 
 const shareToken = "share-token-for-test";
 const editToken = "edit-token-for-test";
-const row = {
-  id: "bill-1",
-  share_token_digest: "",
-  edit_token_digest: "",
-  payload_json: "",
-  created_at: 1,
-  updated_at: 1,
-};
-const calls: Array<{ sql: string; values: unknown[] }> = [];
+let row:TestBillRow,database:ReturnType<typeof conditionalBillDb>;
+const files=new Set<string>();
 const bucket = {
   get: vi.fn(async (key: string) => ({ body: key, httpMetadata: { contentType: "image/png" } })),
-  delete: vi.fn(async () => undefined),
+  delete: vi.fn(async (keys:string|string[]) => {for(const key of typeof keys==="string"?[keys]:keys)files.delete(key);}),
+  list:vi.fn(async()=>({objects:[...files].map(key=>({key})),truncated:false,delimitedPrefixes:[]})),
 };
 
 function installDb() {
-  worker.env.DB = {
-    prepare(sql: string) {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            async first() {
-              const digest = values[0];
-              return digest === row.share_token_digest || digest === row.edit_token_digest
-                ? row
-                : null;
-            },
-            async run() {
-              calls.push({ sql, values });
-              return { success: true };
-            },
-          };
-        },
-      };
-    },
-  };
+  database=conditionalBillDb();database.rows.set(row.id,row);row=database.rows.get(row.id)!;
+  worker.env.DB = database.db;
   worker.env.BUCKET = bucket;
 }
 
 beforeEach(async () => {
-  calls.length = 0;
+  row={id:"bill-1",share_token_digest:"",edit_token_digest:"",payload_json:"",created_at:1,updated_at:1,last_activity_at:1,all_paid_at:null,expires_at:Date.now()+2592000000,retention_version:0};
+  files.clear();files.add("bills/bill-1/qr.png");
   bucket.get.mockClear();
   bucket.delete.mockClear();
   row.share_token_digest = await hashToken(shareToken);
@@ -73,6 +51,7 @@ beforeEach(async () => {
   });
   installDb();
 });
+afterEach(()=>database.close());
 
 describe("sensitive bill storage access", () => {
   it("does not serve a hidden QR through the share token", async () => {
@@ -96,10 +75,10 @@ describe("sensitive bill storage access", () => {
   });
 
   it("removes the QR object and bill row when an owner deletes a bill", async () => {
-    await deleteBillByEditToken(editToken);
+    const ack=await readEditCheckpoint(editToken);
+    expect(await deleteBillByEditToken(editToken,ack!.revision)).toMatchObject({state:"deleted"});
 
-    expect(bucket.delete).toHaveBeenCalledWith("bills/bill-1/qr.png");
-    expect(calls).toHaveLength(1);
-    expect(calls[0].sql).toMatch(/^DELETE FROM bills/);
+    expect(bucket.delete).toHaveBeenCalledWith(["bills/bill-1/qr.png"]);
+    expect(database.rows.get("bill-1")).toBeUndefined();expect(files.size).toBe(0);
   });
 });

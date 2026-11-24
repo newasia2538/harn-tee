@@ -18,7 +18,7 @@ describe("conditional QR association",()=>{
     bucket.put.mockImplementation(async()=>{const row=database.rows.get(draft.id)!;const winner=JSON.parse(row.payload_json);winner.title="peer";winner.recipient.qr.objectKey="winner";database.rows.set(row.id,{...row,payload_json:JSON.stringify(winner)});});
     await expect(saveQrForEditToken(draft.editToken,file(),{revision:snapshot.revision,mode:"draft"})).rejects.toThrow("revision-conflict");
     const uploaded=(bucket.put.mock.calls as unknown[][])[0][0];
-    expect(bucket.delete.mock.calls).toEqual([[uploaded]]);
+    expect(bucket.delete).toHaveBeenCalledWith([uploaded]);
     expect(JSON.parse(database.rows.get(draft.id)!.payload_json).recipient.qr.objectKey).toBe("winner");
   });
   it("rejects stale uploads without creating an R2 object",async()=>{

@@ -1,3 +1,4 @@
+import {DocumentLink as Link} from "@/components/harn-tee/document-link";
 import { Check, ExternalLink, LockKeyhole, Share2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ export function LinkPanel({ shareUrl, editUrl,onStartNew }: { shareUrl: string; 
           <p className="mb-3 break-all text-xs text-[#8d8076]">{editUrl}</p>
           <CopyButton value={editUrl} label="คัดลอกลิงก์แก้ไข" />
         </div>
+        <Button asChild variant="outline" className="w-full"><Link href="/history">บิลของฉัน</Link></Button>
         {onStartNew&&<Button type="button" variant="outline" onClick={onStartNew} className="w-full whitespace-normal">เริ่มทำรายการใหม่</Button>}
       </CardContent>
     </Card>

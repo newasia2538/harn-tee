@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BillDocument, BillRecord } from "../../lib/harn-tee/types";
+import {withLifecycle} from "../helpers/lifecycle-fixtures";
 
 const repository = vi.hoisted(() => ({
   readBillByToken: vi.fn(),
@@ -32,7 +33,7 @@ const document: BillDocument = {
 };
 
 function record(access: "share" | "edit", bill = document): BillRecord {
-  return { id: "bill-1", document: bill, access };
+  return withLifecycle({ id: "bill-1", document: bill, access,revision:"revision" });
 }
 
 type BillResponseBody = {

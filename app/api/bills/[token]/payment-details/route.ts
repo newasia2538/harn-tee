@@ -1,4 +1,7 @@
+// Financial capability responses must always execute against current server state.
+export const dynamic="force-dynamic";
 import { readBillByToken } from "../../../../../db/repository";
+import {withDraftErrors} from "../../../../../lib/harn-tee/draft-http";
 
 function json(data: unknown, init?: ResponseInit) {
   return Response.json(data, {
@@ -14,6 +17,7 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
+  return withDraftErrors(async()=>{
   const field = new URL(request.url).searchParams.get("field");
   if (field !== "bank" && field !== "promptPay") {
     return json({ error: "ไม่รู้จักข้อมูลที่ต้องการเปิดดู" }, { status: 400 });
@@ -33,4 +37,5 @@ export async function GET(
   if (!value) return json({ error: "ไม่พบข้อมูลที่ต้องการ" }, { status: 404 });
 
   return json({ value });
+  });
 }

@@ -12,11 +12,13 @@ export function SensitiveValue({
   field,
   value,
   label,
+  onUnavailable,
 }: {
   token: string;
   field: SensitiveField;
   value: string;
   label: string;
+  onUnavailable?:(state:"deleting"|"deleted")=>void;
 }) {
   const [secret, setSecret] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -29,7 +31,8 @@ export function SensitiveValue({
       "/api/bills/" + encodeURIComponent(token) + "/payment-details?field=" + field,
       { cache: "no-store" },
     );
-    const body = await response.json() as { value?: string; error?: string };
+    const body = await response.json() as { value?: string; error?: string;code?:string };
+    if(response.status===410){setSecret(null);setRevealed(false);onUnavailable?.(body.code==="bill-deleted"?"deleted":"deleting");}
     if (!response.ok || typeof body.value !== "string") {
       throw new Error(body.error ?? "เปิดดูข้อมูลไม่สำเร็จ");
     }

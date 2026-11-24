@@ -15,11 +15,13 @@ export function PaymentSummary({
   token,
   qrAvailable,
   canManage = false,
+  onUnavailable,
 }: {
   document: BillDocument;
   token: string;
   qrAvailable: boolean;
   canManage?: boolean;
+  onUnavailable?:(state:"deleting"|"deleted")=>void;
 }) {
   const [qrShown, setQrShown] = useState(false);
   const recipient = document.recipient;
@@ -39,12 +41,12 @@ export function PaymentSummary({
       <CardContent className="space-y-3">
         {bank ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e3ebe1] bg-[#fbfdf9] px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">{bankInfo ? <BankMark bank={bankInfo} size="sm" /> : null}<div className="min-w-0"><p className="text-xs text-[#607387]">บัญชีธนาคาร {bankInfo?.name ?? bank.bankId}</p><SensitiveValue token={token} field="bank" value={bank.accountNumber} label="เลขบัญชี" /></div></div>
+            <div className="flex min-w-0 items-center gap-3">{bankInfo ? <BankMark bank={bankInfo} size="sm" /> : null}<div className="min-w-0"><p className="text-xs text-[#607387]">บัญชีธนาคาร {bankInfo?.name ?? bank.bankId}</p><SensitiveValue onUnavailable={onUnavailable} token={token} field="bank" value={bank.accountNumber} label="เลขบัญชี" /></div></div>
           </div>
         ) : null}
         {promptPay ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e3ebe1] bg-[#fbfdf9] px-4 py-3">
-            <div><p className="text-xs text-[#809087]">PromptPay · {promptPay.type === "phone" ? "เบอร์โทรศัพท์" : "เลขบัตรประชาชน"}</p><SensitiveValue token={token} field="promptPay" value={promptPay.value} label={promptPay.type === "phone" ? "เบอร์โทรศัพท์" : "เลขบัตรประชาชน"} /></div>
+            <div><p className="text-xs text-[#809087]">PromptPay · {promptPay.type === "phone" ? "เบอร์โทรศัพท์" : "เลขบัตรประชาชน"}</p><SensitiveValue onUnavailable={onUnavailable} token={token} field="promptPay" value={promptPay.value} label={promptPay.type === "phone" ? "เบอร์โทรศัพท์" : "เลขบัตรประชาชน"} /></div>
           </div>
         ) : null}
         {qrAvailable ? (
@@ -60,7 +62,7 @@ export function PaymentSummary({
               {qrShown ? <EyeOff size={15} /> : <Eye size={15} />}
               {qrShown ? "ซ่อน QR" : "แสดง QR"}
             </Button>
-            {qrShown ? <Image src={"/api/bills/" + encodeURIComponent(token) + "/qr"} alt="QR สำหรับรับเงิน" width={208} height={208} unoptimized className="mx-auto mt-3 aspect-square rounded-xl bg-white object-contain p-2" /> : null}
+            {qrShown ? <Image src={"/api/bills/" + encodeURIComponent(token) + "/qr"} alt="QR สำหรับรับเงิน" width={208} height={208} unoptimized onError={()=>{setQrShown(false);void fetch("/api/bills/"+encodeURIComponent(token)+"/qr",{cache:"no-store"}).then(async response=>{if(response.status===410){const body=await response.json() as {code?:string};onUnavailable?.(body.code==="bill-deleted"?"deleted":"deleting");}}).catch(()=>undefined);}} className="mx-auto mt-3 aspect-square rounded-xl bg-white object-contain p-2" /> : null}
           </div>
         ) : null}
       </CardContent>

@@ -22,6 +22,7 @@ export class InvalidFormDataBodyError extends Error {
 export async function readLimitedBody(request: Request, maxBytes: number) {
   const declaredLength = request.headers.get("content-length");
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+    void request.body?.cancel().catch(() => undefined);
     throw new RequestBodyTooLargeError();
   }
 

@@ -1,3 +1,4 @@
+import type {LifecycleSnapshot} from "./bill-lifecycle";
 export type ParticipantDraft = {
   id: string;
   name: string;
@@ -124,6 +125,9 @@ export type BillRecord = {
   id: string;
   document: BillDocument;
   access: "share" | "edit";
+  revision:string;
+  lifecycle:LifecycleSnapshot;
+  serverNow:number;
   shareToken?: string;
   editToken?: string;
 };

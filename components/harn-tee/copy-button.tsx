@@ -2,11 +2,12 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-export function CopyButton({ value, label = "คัดลอก" }: { value: string; label?: string }) {
+export function CopyButton({ value, label = "คัดลอก",disabled=false }: { value: string; label?: string;disabled?:boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <Button
       type="button"
+      disabled={disabled}
       variant="outline"
       size="sm"
       onClick={async () => {

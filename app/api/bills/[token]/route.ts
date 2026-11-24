@@ -1,3 +1,5 @@
+// Financial capability responses must always execute against current server state.
+export const dynamic="force-dynamic";
 import {
   deleteBillByEditToken,
   readBillByToken,
@@ -13,6 +15,7 @@ import {
   RequestBodyTooLargeError,
 } from "../../../../lib/harn-tee/request-body";
 import type { BillDocument, BillDraft, BillPatch } from "../../../../lib/harn-tee/types";
+import {billUnavailableResponse,draftJson,requiredRevision,withDraftErrors} from "../../../../lib/harn-tee/draft-http";
 
 const MAX_JSON_BYTES = 1024 * 1024;
 
@@ -57,12 +60,15 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
+  return withDraftErrors(async()=>{
   const { token } = await context.params;
   const share = await readBillByToken("share", token);
   const record = share ?? (await readBillByToken("edit", token));
   if (!record) return json({ error: "ไม่พบข้อมูลบิลนี้" }, { status: 404 });
 
   return json({
+    id:record.id,lifecycle:record.lifecycle,serverNow:record.serverNow,
+    ...(record.access==="edit"?{revision:record.revision}:{}),
     access: record.access,
     payment: {
       qrAvailable:
@@ -70,6 +76,7 @@ export async function GET(
         Boolean(record.document.recipient.qr),
     },
     document: visibleDocument(record.document, record.access),
+  });
   });
 }
 
@@ -140,6 +147,7 @@ export async function PATCH(
     if (!document) return json({ error: "ลิงก์แก้ไขไม่ถูกต้อง" }, { status: 404 });
     return json({ document });
   } catch (error) {
+    const unavailable=billUnavailableResponse(error);if(unavailable)return unavailable;
     if (error instanceof RequestBodyTooLargeError) {
       return json({ error: "ข้อมูลที่ส่งมาแก้ไขมีขนาดใหญ่เกินไป" }, { status: 413 });
     }
@@ -153,16 +161,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
-  const { token } = await context.params;
-  try {
-    const deleted = await deleteBillByEditToken(token);
-    if (!deleted) return json({ error: "ลิงก์แก้ไขไม่ถูกต้อง" }, { status: 404 });
-    return json({ deleted: true });
-  } catch (error) {
-    console.error("Failed to delete bill", error);
-    return json({ error: "ลบบิลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" }, { status: 500 });
-  }
+  return withDraftErrors(async()=>{
+    const {token}=await context.params,revision=requiredRevision(request),result=await deleteBillByEditToken(token,revision);
+    return result?draftJson(result,result.state==="deleted"?200:202):draftJson({error:"ลิงก์แก้ไขไม่ถูกต้อง"},404);
+  });
 }
